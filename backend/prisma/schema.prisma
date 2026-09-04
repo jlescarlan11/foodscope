@@ -1,0 +1,37 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                            String         @id @db.VarChar(36)
+  email                         String         @unique @db.VarChar(191)
+  stripeCustomerId              String?        @unique @db.VarChar(191)
+  stripeSubscriptionId          String?        @unique @db.VarChar(191)
+  subscriptionStatus            String         @default("inactive") @db.VarChar(32)
+  subscriptionCurrentPeriodEnd  DateTime?
+  createdAt                     DateTime       @default(now())
+  updatedAt                     DateTime       @updatedAt
+  recentSearches                RecentSearch[]
+}
+
+model RecentSearch {
+  id        Int      @id @default(autoincrement())
+  userId    String   @db.VarChar(36)
+  query     String   @db.VarChar(120)
+  locale    String   @db.VarChar(2)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model StripeWebhookEvent {
+  id          String   @id @db.VarChar(191)
+  type        String   @db.VarChar(100)
+  processedAt DateTime @default(now())
+}
