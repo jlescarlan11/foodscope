@@ -31,6 +31,7 @@ h1 em { color: #6f9430; font-weight: 400; }
 .recent div { display: flex; flex-wrap: wrap; gap: 7px; }
 .recent button { border: 1px solid var(--line); background: transparent; color: var(--ink); padding: 6px 10px; border-radius: 999px; }
 .alert { width: fit-content; margin-top: 18px; padding: 10px 13px; color: #8e342b; background: #fff0ec; border-radius: 8px; }
+.notice { width: fit-content; margin-top: 18px; padding: 10px 13px; color: var(--ink); background: #edf5dc; border-radius: 8px; }
 .plan-card { align-self: end; border-radius: 20px; padding: 27px; color: #ebf2ed; background: var(--ink); box-shadow: 0 22px 50px rgba(24,53,44,.13); }
 .plan-top { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 13px; }
 .spark { display: grid; place-items: center; width: 44px; height: 44px; border: 1px solid #49665c; border-radius: 50%; color: var(--lime); font-size: 1.3rem; }

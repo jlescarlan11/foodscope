@@ -131,6 +131,28 @@ describe('Foodscope locale switching', () => {
     expect(window.location.search).toBe('');
   });
 
+  it('reports a canceled Checkout once without polling or changing account state', async () => {
+    window.history.replaceState(null, '', '/?checkout=cancelled');
+    let accountReads = 0;
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('/api/searches/recent')) {
+        return { ok: true, json: async () => ({ searches: [] }) } as Response;
+      }
+      accountReads += 1;
+      return { ok: true, json: async () => ({ nutritionAccess: false }) } as Response;
+    }));
+
+    render(<FoodscopeApp />);
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Checkout was canceled. Your plan was not changed.',
+    );
+    expect(await screen.findByRole('button', { name: 'Unlock nutrition' })).toBeInTheDocument();
+    expect(accountReads).toBe(1);
+    expect(window.location.search).toBe('');
+  });
+
   it('does not offer Checkout before authoritative account state loads', async () => {
     let resolveAccount!: (response: Response) => void;
     const account = new Promise<Response>((resolve) => { resolveAccount = resolve; });

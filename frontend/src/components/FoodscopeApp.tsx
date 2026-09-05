@@ -72,6 +72,7 @@ export function FoodscopeApp() {
   const [loading, setLoading] = useState(false);
   const [subscribing, setSubscribing] = useState(false);
   const [error, setError] = useState(false);
+  const [checkoutCancelled, setCheckoutCancelled] = useState(false);
   const searchSequence = useRef(0);
   const searchController = useRef<AbortController | null>(null);
   const recentSequence = useRef(0);
@@ -116,10 +117,16 @@ export function FoodscopeApp() {
     const controller = new AbortController();
     accountController.current = controller;
     const currentUrl = new URL(window.location.href);
-    const returnedFromCheckout = currentUrl.searchParams.get('checkout') === 'success';
-    if (returnedFromCheckout) {
+    const checkoutStatus = currentUrl.searchParams.get('checkout');
+    const returnedFromCheckout = checkoutStatus === 'success';
+    if (checkoutStatus === 'success' || checkoutStatus === 'cancelled') {
       currentUrl.searchParams.delete('checkout');
       window.history.replaceState(null, '', `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`);
+    }
+    if (checkoutStatus === 'cancelled') {
+      void Promise.resolve().then(() => {
+        if (!controller.signal.aborted) setCheckoutCancelled(true);
+      });
     }
 
     void Promise.all([loadAccount(controller, returnedFromCheckout), refreshRecent(controller.signal)]);
@@ -201,6 +208,7 @@ export function FoodscopeApp() {
             <button disabled={loading || !query.trim()}>{loading ? messages.searching : messages.search}<span aria-hidden="true">→</span></button>
           </form>
           {recent.length > 0 && <div className="recent"><span>{messages.recent}</span><div>{recent.map((item) => <button key={item.id} onClick={() => { const recentLocale = locales.includes(item.locale as Locale) ? item.locale as Locale : locale; setLocale(recentLocale); void runSearch(item.query, recentLocale); }}>{item.query}</button>)}</div></div>}
+          {checkoutCancelled && <p className="notice" role="status">{messages.checkoutCancelled}</p>}
           {error && <p className="alert" role="alert">{messages.error}</p>}
         </div>
 
