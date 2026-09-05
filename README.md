@@ -27,6 +27,13 @@ The browser never calls Open Food Facts or Stripe APIs directly. Express validat
 Impossible upstream values are treated as unavailable: mass nutrients cannot exceed 100 g per 100 g,
 and energy is conservatively capped at 1,000 kcal per 100 g.
 
+Validated Open Food Facts product results are cached at the provider boundary for 10 minutes under
+the selected locale and a canonical query, with a 500-key least-recently-used limit. Successful empty
+results are cached too; errors, backpressure, timeouts, cancellation, and malformed or oversized
+responses are not. Concurrent misses for the same key share one upstream operation while each caller
+retains independent cancellation. Account reads, entitlement-dependent nutrition shaping, recent-search
+persistence, browser requests, and final API responses remain uncached and run for every request.
+
 ## Prerequisites
 
 - Node.js 24 LTS
@@ -172,6 +179,10 @@ The behavioral suite covers invalid search input, Open Food Facts normalization 
 - Stripe test mode only; there is one monthly Price and no Customer Portal/cancellation UI.
 - Recent searches are an eight-item view of persisted history, not deduplicated or user-editable.
 - Open Food Facts coverage and translations vary by contributor; missing data stays visibly unavailable.
+- The Open Food Facts result cache is process-local: restarting the backend clears it, and multiple
+  backend instances neither share entries nor coalesce requests. A distributed cache such as Redis
+  could provide that coordination later; client state tooling such as TanStack Query would not replace
+  the server-side provider boundary or its entitlement-sensitive response handling.
 - The API has assessment-scale CORS, validation, body limits, security headers, and bounded HTTP connection/request lifetimes. Search and Checkout are origin-checked POST workflows so third-party pages cannot trigger their provider calls or demo-user writes. The Open Food Facts adapter enforces its documented per-process search budget, but there is no distributed public-internet rate limiter.
 - Tax calculation is intentionally not enabled; real charging would require registrations and a tax review.
 

@@ -1,12 +1,30 @@
 import { isUsableText, NUTRITION_RULES, type Locale } from './constants.js';
 import type { Nutrition, Product, ProductProvider } from './types.js';
 import { setTimeout as delay } from 'node:timers/promises';
+import { LRUCache } from 'lru-cache';
 
 type UnknownRecord = Record<string, unknown>;
 const MAX_RESPONSE_BYTES = 1_000_000;
 const MAX_PRODUCTS = 20;
 const MAX_PRODUCT_TEXT_CHARACTERS = 500;
 const MAX_RETRY_AFTER_SECONDS = 3_600;
+const DEFAULT_CACHE_MAX = 500;
+const DEFAULT_CACHE_TTL_MS = 10 * 60_000;
+
+type ProviderProduct = Omit<Product, 'nutritionLocked'>;
+type InFlightSearch = {
+  abandoned: boolean;
+  controller: AbortController;
+  promise: Promise<readonly ProviderProduct[]>;
+  settled: boolean;
+  waiters: number;
+};
+
+export type OpenFoodFactsCacheOptions = {
+  clock?: () => number;
+  max?: number;
+  ttlMs?: number;
+};
 
 const isRecord = (value: unknown): value is UnknownRecord =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -114,6 +132,31 @@ async function discardResponse(response: Response) {
   await response.body?.cancel().catch(() => undefined);
 }
 
+export function canonicalProductSearchKey(query: string, locale: Locale) {
+  const canonicalQuery = query
+    .normalize('NFKC')
+    .trim()
+    .replace(/\s+/gu, ' ')
+    .toLocaleLowerCase(locale);
+  return `${locale}\u0000${canonicalQuery}`;
+}
+
+function cloneProducts(products: readonly ProviderProduct[]): ProviderProduct[] {
+  return products.map((product) => ({
+    ...product,
+    ...(product.nutrition
+      ? {
+          nutrition: Object.fromEntries(
+            Object.entries(product.nutrition).map(([key, nutrient]) => [
+              key,
+              nutrient ? { ...nutrient } : nutrient,
+            ]),
+          ) as Nutrition,
+        }
+      : {}),
+  }));
+}
+
 export function normalizeProduct(raw: unknown, locale: Locale): Omit<Product, 'nutritionLocked'> | null {
   if (!isRecord(raw) || raw.lang !== locale) return null;
   const id = textValue(raw.code) ?? textValue(raw._id);
@@ -144,12 +187,22 @@ export function normalizeProduct(raw: unknown, locale: Locale): Omit<Product, 'n
 
 export class OpenFoodFactsProvider implements ProductProvider {
   private readonly requestTimestamps: number[] = [];
+  private readonly cache: LRUCache<string, readonly ProviderProduct[]>;
+  private readonly inFlight = new Map<string, InFlightSearch>();
 
   constructor(
     private readonly userAgent: string,
     private readonly fetcher: typeof fetch = fetch,
     private readonly clock: () => number = Date.now,
-  ) {}
+    cacheOptions: OpenFoodFactsCacheOptions = {},
+  ) {
+    this.cache = new LRUCache({
+      max: cacheOptions.max ?? DEFAULT_CACHE_MAX,
+      ttl: cacheOptions.ttlMs ?? DEFAULT_CACHE_TTL_MS,
+      ttlResolution: 0,
+      ...(cacheOptions.clock ? { perf: { now: cacheOptions.clock } } : {}),
+    });
+  }
 
   private reserveRequest() {
     const now = this.clock();
@@ -165,6 +218,72 @@ export class OpenFoodFactsProvider implements ProductProvider {
   }
 
   async search(query: string, locale: Locale, signal?: AbortSignal) {
+    signal?.throwIfAborted();
+    const key = canonicalProductSearchKey(query, locale);
+    const remainingTtl = this.cache.getRemainingTTL(key);
+    if (remainingTtl <= 0) {
+      this.cache.delete(key);
+    } else {
+      const cached = this.cache.get(key);
+      if (cached) return cloneProducts(cached);
+    }
+
+    let shared = this.inFlight.get(key);
+    if (!shared) {
+      const controller = new AbortController();
+      shared = {
+        abandoned: false,
+        controller,
+        promise: Promise.resolve([]),
+        settled: false,
+        waiters: 0,
+      };
+      const entry = shared;
+      entry.promise = this.searchUpstream(query, locale, controller.signal)
+        .then((products) => {
+          const cachedProducts = cloneProducts(products);
+          if (!entry.abandoned) this.cache.set(key, cachedProducts);
+          return cachedProducts;
+        })
+        .finally(() => {
+          entry.settled = true;
+          if (this.inFlight.get(key) === entry) this.inFlight.delete(key);
+        });
+      this.inFlight.set(key, entry);
+    }
+
+    return this.waitForSearch(key, shared, signal);
+  }
+
+  private async waitForSearch(key: string, shared: InFlightSearch, signal?: AbortSignal) {
+    shared.waiters += 1;
+    let abortListener: (() => void) | undefined;
+    const aborted = signal
+      ? new Promise<never>((_resolve, reject) => {
+          abortListener = () => reject(signal.reason);
+          if (signal.aborted) abortListener();
+          else signal.addEventListener('abort', abortListener, { once: true });
+        })
+      : undefined;
+
+    try {
+      const products = aborted
+        ? await Promise.race([shared.promise, aborted])
+        : await shared.promise;
+      signal?.throwIfAborted();
+      return cloneProducts(products);
+    } finally {
+      if (signal && abortListener) signal.removeEventListener('abort', abortListener);
+      shared.waiters -= 1;
+      if (!shared.settled && shared.waiters === 0) {
+        shared.abandoned = true;
+        if (this.inFlight.get(key) === shared) this.inFlight.delete(key);
+        shared.controller.abort();
+      }
+    }
+  }
+
+  private async searchUpstream(query: string, locale: Locale, signal: AbortSignal) {
     const params = new URLSearchParams({
       search_terms: query,
       search_simple: '1',
@@ -186,7 +305,7 @@ export class OpenFoodFactsProvider implements ProductProvider {
     });
     // Open Food Facts v2 only supports structured filters; plain-text search remains on this legacy endpoint.
     const request = () => {
-      signal?.throwIfAborted();
+      signal.throwIfAborted();
       this.reserveRequest();
       return this.fetcher(`https://world.openfoodfacts.org/cgi/search.pl?${params}`, {
         headers: {
@@ -194,7 +313,7 @@ export class OpenFoodFactsProvider implements ProductProvider {
           Accept: 'application/json',
           'Accept-Language': locale,
         },
-        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000),
+        signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
       });
     };
     let response = await request();
@@ -208,7 +327,7 @@ export class OpenFoodFactsProvider implements ProductProvider {
       if (retryAfter !== undefined && retryAfter > 2) {
         throw new Error(`Open Food Facts returned ${response.status}`);
       }
-      await delay(retryAfter === undefined ? 250 : retryAfter * 1000, undefined, signal ? { signal } : undefined);
+      await delay(retryAfter === undefined ? 250 : retryAfter * 1000, undefined, { signal });
       response = await request();
     }
     if (response.status === 429 || response.status === 503) {
