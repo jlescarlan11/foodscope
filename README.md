@@ -39,6 +39,7 @@ git clone <repository-url>
 cd foodscope
 cp .env.example backend/.env
 cp .env.example frontend/.env.local
+# Replace OPEN_FOOD_FACTS_USER_AGENT in backend/.env with a real contact.
 docker compose up -d
 npm install
 npm run db:generate
@@ -51,7 +52,9 @@ Open <http://localhost:3000>. The API runs at <http://localhost:4000>. MySQL may
 
 ## Environment variables
 
-The committed `.env.example` contains fake placeholders only.
+The committed `.env.example` contains fake placeholders only. Replace
+`OPEN_FOOD_FACTS_USER_AGENT` with an application/version and a monitored contact before starting
+the backend; the placeholder is rejected so anonymous traffic cannot be sent accidentally.
 
 | Variable | Used by | Purpose |
 | --- | --- | --- |

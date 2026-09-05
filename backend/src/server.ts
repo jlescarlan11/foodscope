@@ -1,9 +1,11 @@
 import { createApp } from './app.js';
-import { config } from './config.js';
+import { loadConfig } from './config.js';
 import { OpenFoodFactsProvider } from './open-food-facts.js';
 import { prisma } from './prisma.js';
 import { repository } from './repository.js';
 import { createBillingProvider } from './stripe.js';
+
+const config = loadConfig();
 
 const app = createApp({
   config,

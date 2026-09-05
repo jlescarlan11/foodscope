@@ -9,12 +9,26 @@ export type AppConfig = {
   stripePriceId?: string;
 };
 
-export const config: AppConfig = {
-  port: Number(process.env.PORT ?? 4000),
-  frontendUrl: process.env.FRONTEND_URL ?? 'http://localhost:3000',
-  openFoodFactsUserAgent:
-    process.env.OPEN_FOOD_FACTS_USER_AGENT ?? 'FoodscopeTechnicalAssessment/1.0 (contact@example.com)',
-  stripeSecretKey: process.env.STRIPE_SECRET_KEY,
-  stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET,
-  stripePriceId: process.env.STRIPE_PRICE_ID,
-};
+const placeholderUserAgent = /(?:contact@example\.com|replace[_ -]?me|change[_ -]?me)/i;
+
+export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppConfig {
+  const openFoodFactsUserAgent = environment.OPEN_FOOD_FACTS_USER_AGENT?.trim();
+  if (
+    !openFoodFactsUserAgent ||
+    placeholderUserAgent.test(openFoodFactsUserAgent) ||
+    !/^\S+\/\S+\s+\(.+\)$/.test(openFoodFactsUserAgent)
+  ) {
+    throw new Error(
+      'OPEN_FOOD_FACTS_USER_AGENT must identify the application, version, and a real contact',
+    );
+  }
+
+  return {
+    port: Number(environment.PORT ?? 4000),
+    frontendUrl: environment.FRONTEND_URL ?? 'http://localhost:3000',
+    openFoodFactsUserAgent,
+    stripeSecretKey: environment.STRIPE_SECRET_KEY,
+    stripeWebhookSecret: environment.STRIPE_WEBHOOK_SECRET,
+    stripePriceId: environment.STRIPE_PRICE_ID,
+  };
+}
