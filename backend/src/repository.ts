@@ -302,6 +302,37 @@ export function createRepository(database: typeof prisma, stripePriceId?: string
             }
           }
 
+          if (event.type === 'checkout.session.expired') {
+            const session = eventObject(event);
+            const sessionId = isRecord(session) && typeof session.id === 'string' &&
+              session.id.length > 0 && Array.from(session.id).length <= 255
+              ? session.id
+              : null;
+            const customerId = isRecord(session) ? expandableId(session.customer) : null;
+            const metadata = isRecord(session) && isRecord(session.metadata)
+              ? session.metadata
+              : null;
+            if (
+              sessionId && customerId && Array.from(customerId).length <= 255 &&
+              metadata?.demoUserId === DEMO_USER_ID
+            ) {
+              await tx.user.updateMany({
+                where: {
+                  id: DEMO_USER_ID,
+                  stripeCustomerId: customerId,
+                  stripeCheckoutSessionId: sessionId,
+                },
+                data: {
+                  stripeCheckoutAttemptId: null,
+                  stripeCheckoutPriceId: null,
+                  stripeCheckoutSessionId: null,
+                  stripeCheckoutSessionUrl: null,
+                  stripeCheckoutExpiresAt: null,
+                },
+              });
+            }
+          }
+
           if (event.type === 'customer.deleted') {
             const customer = eventObject(event);
             const customerId = isRecord(customer) && customer.deleted === true &&

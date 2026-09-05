@@ -428,4 +428,49 @@ integration('Repository with MySQL', () => {
         subscriptionCurrentPeriodEnd: null,
       });
   });
+
+  it('releases a matching Checkout attempt as soon as Stripe expires its Session', async () => {
+    const attempt = await subject.getOrCreateCheckoutAttempt(DEMO_USER_ID);
+    await subject.completeCheckoutAttempt(DEMO_USER_ID, attempt.id, {
+      id: 'cs_expired_integration',
+      url: 'https://checkout.stripe.test/expired-integration',
+      expiresAt: attempt.expiresAt,
+    });
+
+    await subject.processStripeEvent({
+      id: 'evt_old_checkout_expired',
+      type: 'checkout.session.expired',
+      data: { object: {
+        id: 'cs_older_integration',
+        customer: 'cus_integration',
+        metadata: { demoUserId: DEMO_USER_ID },
+      } },
+    } as unknown as Stripe.Event);
+    await expect(database.user.findUniqueOrThrow({ where: { id: DEMO_USER_ID } }))
+      .resolves.toMatchObject({
+        stripeCheckoutAttemptId: attempt.id,
+        stripeCheckoutSessionId: 'cs_expired_integration',
+      });
+
+    await subject.processStripeEvent({
+      id: 'evt_checkout_expired',
+      type: 'checkout.session.expired',
+      data: { object: {
+        id: 'cs_expired_integration',
+        customer: 'cus_integration',
+        metadata: { demoUserId: DEMO_USER_ID },
+      } },
+    } as unknown as Stripe.Event);
+
+    await expect(database.user.findUniqueOrThrow({ where: { id: DEMO_USER_ID } }))
+      .resolves.toMatchObject({
+        stripeCustomerId: 'cus_integration',
+        subscriptionStatus: 'canceled',
+        stripeCheckoutAttemptId: null,
+        stripeCheckoutPriceId: null,
+        stripeCheckoutSessionId: null,
+        stripeCheckoutSessionUrl: null,
+        stripeCheckoutExpiresAt: null,
+      });
+  });
 });

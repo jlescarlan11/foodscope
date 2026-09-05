@@ -624,9 +624,47 @@ describe('Stripe webhook repository', () => {
     });
   });
 
+  it('clears only the matching expired Checkout Session', async () => {
+    const updateMany = vi.fn(async () => ({ count: 1 }));
+    const tx = {
+      stripeWebhookEvent: eventMarker(),
+      user: { updateMany },
+    };
+    const database = {
+      $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<void>) => callback(tx)),
+    } as unknown as typeof prisma;
+    const expired = {
+      id: 'evt_checkout_expired',
+      type: 'checkout.session.expired',
+      data: { object: {
+        id: 'cs_expired',
+        customer: 'cus_demo',
+        metadata: { demoUserId: DEMO_USER_ID },
+      } },
+    } as unknown as Stripe.Event;
+
+    await createBillingRepository(database).processStripeEvent(expired);
+
+    expect(updateMany).toHaveBeenCalledWith({
+      where: {
+        id: DEMO_USER_ID,
+        stripeCustomerId: 'cus_demo',
+        stripeCheckoutSessionId: 'cs_expired',
+      },
+      data: {
+        stripeCheckoutAttemptId: null,
+        stripeCheckoutPriceId: null,
+        stripeCheckoutSessionId: null,
+        stripeCheckoutSessionUrl: null,
+        stripeCheckoutExpiresAt: null,
+      },
+    });
+  });
+
   it.each([
     'customer.subscription.updated',
     'checkout.session.completed',
+    'checkout.session.expired',
     'customer.deleted',
   ] as const)('durably ignores a malformed %s event without Stripe or account work', async (type) => {
     const retrieveSubscription = vi.fn(async () => subscription('active'));
