@@ -5,7 +5,7 @@ import { prisma } from './prisma.js';
 import { repository } from './repository.js';
 import { createBillingProvider } from './stripe.js';
 import { configureHttpServer } from './http-server.js';
-import { ensureDemoUser } from './demo-user.js';
+import { initializeDatabase } from './database-startup.js';
 
 const config = loadConfig();
 
@@ -17,11 +17,7 @@ const app = createApp({
 });
 
 async function start() {
-  try {
-    await prisma.$connect();
-    await ensureDemoUser(prisma);
-  } catch {
-    console.error('Database initialization failed during startup');
+  if (!await initializeDatabase(prisma)) {
     process.exitCode = 1;
     return;
   }
