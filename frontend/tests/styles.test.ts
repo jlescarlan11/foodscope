@@ -34,4 +34,12 @@ describe('accessible text colors', () => {
     const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     expect(css).toMatch(new RegExp(`${escaped}\\s*\\{[^}]*color:\\s*var\\(--muted\\)`));
   });
+
+  it('honors reduced-motion preferences for scrolling and loading feedback', () => {
+    const reducedMotion = css.match(
+      /@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{([\s\S]+)\}\s*$/,
+    )?.[1];
+    expect(reducedMotion).toContain('scroll-behavior: auto');
+    expect(reducedMotion).toContain('animation: none');
+  });
 });

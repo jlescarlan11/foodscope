@@ -49,3 +49,4 @@ footer .attribution { max-width: 760px; text-align: right; line-height: 1.6; }
 footer a { color: inherit; text-underline-offset: 3px; }
 @media (max-width: 900px) { .hero { grid-template-columns: 1fr; }.plan-card { max-width: 520px; }.product-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 620px) { .topbar { height: 68px; }.locale-control > span { display: none; }.hero { padding-top: 55px; }.search-form { grid-template-columns: 28px 1fr; }.search-form button { grid-column: 1 / -1; justify-content: center; }.recent { display: block; }.recent > span { display: block; margin-bottom: 8px; }.product-grid { grid-template-columns: 1fr; }.results-header { align-items: center; } footer { display: grid; gap: 8px; } footer .attribution { text-align: left; } }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; }.spinner { animation: none; } }
