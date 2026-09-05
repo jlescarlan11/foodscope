@@ -76,10 +76,10 @@ function harness(sessionUrl: string | null = null, customerId: string | null = n
     ...session,
     customer: params?.customer ?? session.customer,
   }));
-  const subscriptionsList = vi.fn(async (): Promise<{
-    data: Array<{ status: Stripe.Subscription.Status }>;
-    has_more: boolean;
-  }> => ({ data: [], has_more: false }));
+  const subscriptionsList = vi.fn(async (): Promise<Record<string, unknown>> => ({
+    data: [],
+    has_more: false,
+  }));
   const pricesRetrieve = vi.fn(async () => ({
     id: 'price_test',
     active: true,
@@ -608,6 +608,24 @@ describe('Stripe Checkout creation', () => {
     })).resolves.toEqual({ url: 'https://checkout.stripe.test/session' });
     expect(setup.customersCreate).not.toHaveBeenCalled();
     expect(setup.sessionsCreate).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ['omits pagination completeness', { data: [] }],
+    ['reports another page', { data: [], has_more: true }],
+    ['omits subscription data', { has_more: false }],
+    ['returns malformed subscription data', { data: [null], has_more: false }],
+  ])('does not create a Session when Stripe %s', async (_case, response) => {
+    const setup = harness(null, 'cus_existing');
+    setup.subscriptionsList.mockResolvedValueOnce(response);
+
+    await expect(setup.provider.createCheckout({
+      ...user,
+      stripeCustomerId: 'cus_existing',
+    })).rejects.toBeInstanceOf(CheckoutUnavailableError);
+
+    expect(setup.sessionsCreate).not.toHaveBeenCalled();
+    expect(setup.repository.completeCheckoutAttempt).not.toHaveBeenCalled();
   });
 
   it('replaces a deleted stored Customer before creating Checkout', async () => {

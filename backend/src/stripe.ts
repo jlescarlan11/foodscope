@@ -13,7 +13,7 @@ import type { BillingProvider, DemoUser, Repository } from './types.js';
 
 const STRIPE_REQUEST_TIMEOUT_MS = 5_000;
 const MINIMUM_CHECKOUT_EXPIRY_MS = 30 * 60 * 1000;
-const TERMINAL_SUBSCRIPTION_STATUSES = new Set<Stripe.Subscription.Status>([
+const TERMINAL_SUBSCRIPTION_STATUSES = new Set<string>([
   'canceled',
   'incomplete_expired',
 ]);
@@ -57,6 +57,18 @@ function createdCustomerId(value: unknown, demoUserId: string) {
     (customer.metadata as Record<string, unknown>).demoUserId === demoUserId
     ? customer.id
     : null;
+}
+
+function hasOnlyTerminalSubscriptions(value: unknown) {
+  if (typeof value !== 'object' || value === null) return false;
+  const page = value as Record<string, unknown>;
+  return page.has_more === false &&
+    Array.isArray(page.data) &&
+    page.data.every((subscription) => {
+      if (typeof subscription !== 'object' || subscription === null) return false;
+      const status = (subscription as Record<string, unknown>).status;
+      return typeof status === 'string' && TERMINAL_SUBSCRIPTION_STATUSES.has(status);
+    });
 }
 
 function isStaleCheckoutExpiryError(error: unknown, expiresAt: Date) {
@@ -168,10 +180,7 @@ export class StripeBillingProvider implements BillingProvider {
         status: 'all',
         limit: 100,
       });
-      if (
-        subscriptions.has_more ||
-        subscriptions.data.some(({ status }) => !TERMINAL_SUBSCRIPTION_STATUSES.has(status))
-      ) {
+      if (!hasOnlyTerminalSubscriptions(subscriptions)) {
         throw new CheckoutUnavailableError();
       }
     } else {
