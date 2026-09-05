@@ -68,12 +68,15 @@ export function FoodscopeApp() {
   const [products, setProducts] = useState<Product[] | null>(null);
   const [recent, setRecent] = useState<RecentSearch[]>([]);
   const [user, setUser] = useState<UserState | null>(null);
+  const [accountState, setAccountState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [loading, setLoading] = useState(false);
   const [subscribing, setSubscribing] = useState(false);
   const [error, setError] = useState(false);
   const searchSequence = useRef(0);
   const searchController = useRef<AbortController | null>(null);
   const recentSequence = useRef(0);
+  const accountSequence = useRef(0);
+  const accountController = useRef<AbortController | null>(null);
   const messages = dictionaries[locale];
 
   const refreshRecent = (signal?: AbortSignal) => {
@@ -86,8 +89,32 @@ export function FoodscopeApp() {
     }).catch(() => undefined);
   };
 
+  const loadAccount = async (controller: AbortController, pollAfterCheckout = false) => {
+    const requestId = ++accountSequence.current;
+    const delays = pollAfterCheckout ? [0, 1_000, 2_000, 4_000, 8_000] : [0];
+    let loadedAccount: UserState | null = null;
+    for (const delayMs of delays) {
+      try {
+        if (delayMs) await wait(delayMs, controller.signal);
+        loadedAccount = await api<UserState>('/api/user', { signal: controller.signal });
+        if (controller.signal.aborted || requestId !== accountSequence.current) return;
+        if (loadedAccount.nutritionAccess) break;
+      } catch {
+        if (controller.signal.aborted || requestId !== accountSequence.current) return;
+      }
+    }
+    if (requestId !== accountSequence.current) return;
+    if (loadedAccount) {
+      setUser(loadedAccount);
+      setAccountState('ready');
+    } else {
+      setAccountState('error');
+    }
+  };
+
   useEffect(() => {
     const controller = new AbortController();
+    accountController.current = controller;
     const currentUrl = new URL(window.location.href);
     const returnedFromCheckout = currentUrl.searchParams.get('checkout') === 'success';
     if (returnedFromCheckout) {
@@ -95,27 +122,9 @@ export function FoodscopeApp() {
       window.history.replaceState(null, '', `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`);
     }
 
-    const loadAccount = async () => {
-      const delays = returnedFromCheckout ? [0, 1_000, 2_000, 4_000, 8_000] : [0];
-      let loaded = false;
-      for (const delayMs of delays) {
-        try {
-          if (delayMs) await wait(delayMs, controller.signal);
-          const account = await api<UserState>('/api/user', { signal: controller.signal });
-          if (controller.signal.aborted) return;
-          loaded = true;
-          setUser(account);
-          if (account.nutritionAccess) return;
-        } catch {
-          if (controller.signal.aborted) return;
-        }
-      }
-      if (!loaded) setError(true);
-    };
-
-    void Promise.all([loadAccount(), refreshRecent(controller.signal)]);
+    void Promise.all([loadAccount(controller, returnedFromCheckout), refreshRecent(controller.signal)]);
     return () => {
-      controller.abort();
+      accountController.current?.abort();
       searchController.current?.abort();
     };
   }, []);
@@ -165,6 +174,14 @@ export function FoodscopeApp() {
     } catch { setError(true); setSubscribing(false); }
   }
 
+  function retryAccount() {
+    accountController.current?.abort();
+    const controller = new AbortController();
+    accountController.current = controller;
+    setAccountState('loading');
+    void loadAccount(controller);
+  }
+
   return (
     <main>
       <header className="topbar">
@@ -188,9 +205,10 @@ export function FoodscopeApp() {
         </div>
 
         <aside className="plan-card">
-          <div className="plan-top"><span className="spark" aria-hidden="true">✣</span><div><p>{messages.plan}</p><strong>{user?.nutritionAccess ? messages.active : messages.inactive}</strong></div><span aria-hidden="true" className={`status-dot ${user?.nutritionAccess ? 'on' : ''}`} /></div>
+          <div className="plan-top"><span className="spark" aria-hidden="true">✣</span><div><p>{messages.plan}</p><strong>{accountState === 'loading' ? messages.loading : accountState === 'error' ? messages.accountUnavailable : user?.nutritionAccess ? messages.active : messages.inactive}</strong></div><span aria-hidden="true" className={`status-dot ${accountState === 'ready' && user?.nutritionAccess ? 'on' : ''}`} /></div>
           <p>{messages.subscriptionBody}</p>
-          {!user?.nutritionAccess && <button onClick={() => void subscribe()} disabled={subscribing}>{subscribing ? messages.redirecting : messages.subscribe}<span>↗</span></button>}
+          {accountState === 'error' && <button onClick={retryAccount}>{messages.retryAccount}<span aria-hidden="true">↻</span></button>}
+          {accountState === 'ready' && !user?.nutritionAccess && <button onClick={() => void subscribe()} disabled={subscribing}>{subscribing ? messages.redirecting : messages.subscribe}<span aria-hidden="true">↗</span></button>}
           <small>{messages.monthly}</small>
         </aside>
       </section>

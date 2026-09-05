@@ -131,6 +131,47 @@ describe('Foodscope locale switching', () => {
     expect(window.location.search).toBe('');
   });
 
+  it('does not offer Checkout before authoritative account state loads', async () => {
+    let resolveAccount!: (response: Response) => void;
+    const account = new Promise<Response>((resolve) => { resolveAccount = resolve; });
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('/api/user')) return account;
+      return { ok: true, json: async () => ({ searches: [] }) } as Response;
+    }));
+
+    render(<FoodscopeApp />);
+    expect(screen.getByText('Loading your Foodscope…')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Unlock nutrition' })).not.toBeInTheDocument();
+
+    await act(async () => resolveAccount({
+      ok: true,
+      json: async () => ({ nutritionAccess: false }),
+    } as Response));
+    expect(await screen.findByRole('button', { name: 'Unlock nutrition' })).toBeInTheDocument();
+  });
+
+  it('offers a retry instead of Checkout when account state cannot be loaded', async () => {
+    let accountReads = 0;
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('/api/searches/recent')) {
+        return { ok: true, json: async () => ({ searches: [] }) } as Response;
+      }
+      accountReads += 1;
+      if (accountReads === 1) throw new Error('database unavailable');
+      return { ok: true, json: async () => ({ nutritionAccess: true }) } as Response;
+    }));
+
+    render(<FoodscopeApp />);
+    const retry = await screen.findByRole('button', { name: 'Retry plan status' });
+    expect(screen.queryByRole('button', { name: 'Unlock nutrition' })).not.toBeInTheDocument();
+
+    await userEvent.click(retry);
+    expect(await screen.findByText('Nutrition unlocked')).toBeInTheDocument();
+    expect(accountReads).toBe(2);
+  });
+
   it('replaces a failed product image with the unavailable fallback', async () => {
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
