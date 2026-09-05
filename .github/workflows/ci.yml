@@ -52,11 +52,7 @@ jobs:
       - run: npm run build
         env:
           NEXT_PUBLIC_API_URL: https://api.example.test
-      - name: Verify repository concurrency and ordering
-        run: npm run test -w backend -- --run tests/repository.integration.test.ts
-        env:
-          TEST_DATABASE_URL: mysql://app:app@127.0.0.1:3306/foodscope_ci
-      - name: Verify non-destructive demo initialization
-        run: npm run test -w backend -- --run tests/demo-user.integration.test.ts
+      - name: Verify database concurrency, ordering, and initialization
+        run: npm run test -w backend -- --run tests/repository.integration.test.ts tests/demo-user.integration.test.ts
         env:
           TEST_DATABASE_URL: mysql://app:app@127.0.0.1:3306/foodscope_ci
