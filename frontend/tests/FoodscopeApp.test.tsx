@@ -55,9 +55,13 @@ describe('Foodscope locale switching', () => {
     expect(document.querySelector('.attribution')).toHaveTextContent('Enthält Informationen von');
     await userEvent.type(screen.getByLabelText('Produkte suchen'), 'Hafermilch');
     await userEvent.click(screen.getByRole('button', { name: /Suchen/ }));
-    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('q=Hafermilch&lang=de'))).toBe(true);
-    expect(fetchMock.mock.calls.find(([url]) => String(url).includes('/api/products/search'))?.[1])
-      .toMatchObject({ cache: 'no-store' });
+    const searchCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/api/products/search'));
+    expect(searchCall?.[1]).toMatchObject({
+      cache: 'no-store',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    expect(JSON.parse(String(searchCall?.[1]?.body))).toEqual({ q: 'Hafermilch', lang: 'de' });
   });
 
   it('links the product data and image attribution to their licenses', () => {
@@ -98,8 +102,9 @@ describe('Foodscope locale switching', () => {
           { id: 2, query: 'second', locale: 'de', createdAt: '' },
         ] }) } as Response;
       }
-      if (url.includes('q=first')) return first;
-      if (url.includes('q=second')) return second;
+      const searchBody = init?.body ? JSON.parse(String(init.body)) as { q?: string } : {};
+      if (searchBody.q === 'first') return first;
+      if (searchBody.q === 'second') return second;
       throw new Error(`Unexpected request: ${url} ${String(init)}`);
     });
     vi.stubGlobal('fetch', fetchMock);

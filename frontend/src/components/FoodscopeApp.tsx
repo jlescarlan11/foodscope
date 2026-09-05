@@ -191,8 +191,13 @@ export function FoodscopeApp() {
     setQuery(clean); setProducts(null); setLoading(true); setSearchError(false);
     try {
       const result = await api<{ products: Product[] }>(
-        `/api/products/search?q=${encodeURIComponent(clean)}&lang=${searchLocale}`,
-        { signal: controller.signal },
+        '/api/products/search',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ q: clean, lang: searchLocale }),
+          signal: controller.signal,
+        },
         REQUEST_TIMEOUT_MS.search,
       );
       if (requestId !== searchSequence.current) return;

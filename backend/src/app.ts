@@ -52,6 +52,13 @@ const asyncRoute =
 
 export function createApp(deps: AppDependencies) {
   const app = express();
+  const requireFrontendOrigin = (req: Request, res: Response, next: NextFunction) => {
+    if (req.header('origin') !== deps.config.frontendUrl) {
+      res.status(403).json({ error: 'Request is only available from the Foodscope frontend' });
+      return;
+    }
+    next();
+  };
   app.disable('x-powered-by');
   app.use(helmet());
   app.use(cors({ origin: deps.config.frontendUrl }));
@@ -118,10 +125,11 @@ export function createApp(deps: AppDependencies) {
     }),
   );
 
-  app.get(
+  app.post(
     '/api/products/search',
+    requireFrontendOrigin,
     asyncRoute(async (req, res) => {
-      const parsed = searchSchema.safeParse(req.query);
+      const parsed = searchSchema.safeParse(req.body);
       if (!parsed.success) {
         res.status(400).json({ error: 'Enter a search term and choose a supported locale' });
         return;
@@ -193,11 +201,8 @@ export function createApp(deps: AppDependencies) {
 
   app.post(
     '/api/billing/checkout-session',
-    asyncRoute(async (req, res) => {
-      if (req.header('origin') !== deps.config.frontendUrl) {
-        res.status(403).json({ error: 'Checkout is only available from the Foodscope frontend' });
-        return;
-      }
+    requireFrontendOrigin,
+    asyncRoute(async (_req, res) => {
       if (!deps.billing) {
         res.status(503).json({ error: 'Stripe is not configured' });
         return;

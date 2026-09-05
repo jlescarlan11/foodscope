@@ -55,13 +55,35 @@ function harness(status = 'inactive') {
   return { app: createApp(dependencies), repository, dependencies, event, currentSubscription };
 }
 
+function search(app: ReturnType<typeof createApp>, q: string, lang: string) {
+  return request(app)
+    .post('/api/products/search')
+    .set('origin', 'http://localhost:3000')
+    .send({ q, lang });
+}
+
 describe('Foodscope API', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('rejects blank searches and unsupported locales', async () => {
     const { app } = harness();
-    expect((await request(app).get('/api/products/search?q=%20&lang=en')).status).toBe(400);
-    expect((await request(app).get('/api/products/search?q=milk&lang=es')).status).toBe(400);
+    expect((await search(app, ' ', 'en')).status).toBe(400);
+    expect((await search(app, 'milk', 'es')).status).toBe(400);
+  });
+
+  it('rejects passive and cross-site search requests before provider work', async () => {
+    const setup = harness();
+
+    const legacyGet = await request(setup.app).get('/api/products/search?q=milk&lang=en');
+    const untrustedOrigin = await request(setup.app)
+      .post('/api/products/search')
+      .set('origin', 'https://attacker.example')
+      .send({ q: 'milk', lang: 'en' });
+
+    expect(legacyGet.status).toBe(404);
+    expect(untrustedOrigin.status).toBe(403);
+    expect(setup.dependencies.products.search).not.toHaveBeenCalled();
+    expect(setup.repository.saveSearch).not.toHaveBeenCalled();
   });
 
   it('classifies malformed and oversized JSON as non-retryable client errors', async () => {
@@ -113,7 +135,7 @@ describe('Foodscope API', () => {
   });
 
   it('never sends nutrition to an inactive user', async () => {
-    const response = await request(harness().app).get('/api/products/search?q=spread&lang=en');
+    const response = await search(harness().app, 'spread', 'en');
     expect(response.status).toBe(200);
     expect(response.body.products[0]).toMatchObject({ nutritionLocked: true });
     expect(response.body.products[0]).not.toHaveProperty('nutrition');
@@ -125,7 +147,7 @@ describe('Foodscope API', () => {
       id: 'missing', name: 'No nutrition supplied', brand: null, image: null,
     }]);
 
-    const response = await request(setup.app).get('/api/products/search?q=missing&lang=en');
+    const response = await search(setup.app, 'missing', 'en');
 
     expect(response.status).toBe(200);
     expect(response.body.products[0]).toEqual({
@@ -151,7 +173,7 @@ describe('Foodscope API', () => {
       providerInternalField: 'must not cross the API boundary',
     } as never]);
 
-    const response = await request(setup.app).get('/api/products/search?q=spread&lang=en');
+    const response = await search(setup.app, 'spread', 'en');
     expect(response.body.products[0]).toMatchObject({
       nutritionLocked: false,
       nutrition: { fat: { value: 30.9, unit: 'g' } },
@@ -195,7 +217,7 @@ describe('Foodscope API', () => {
       }];
     });
 
-    const response = await request(setup.app).get('/api/products/search?q=spread&lang=en');
+    const response = await search(setup.app, 'spread', 'en');
 
     expect(response.status).toBe(200);
     expect(response.body.products[0]).toMatchObject({ nutritionLocked: true });
@@ -205,7 +227,7 @@ describe('Foodscope API', () => {
 
   it('persists valid searches and returns recent entries', async () => {
     const { app, repository } = harness();
-    await request(app).get('/api/products/search?q=oat%20milk&lang=nl');
+    await search(app, 'oat milk', 'nl');
     const recent = await request(app).get('/api/searches/recent');
     expect(repository.saveSearch).toHaveBeenCalledWith(DEMO_USER_ID, 'oat milk', 'nl');
     expect(recent.body.searches[0]).toMatchObject({ query: 'oat milk', locale: 'nl' });
@@ -218,13 +240,13 @@ describe('Foodscope API', () => {
       .mockRejectedValueOnce(new Error('database unavailable'));
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
-    const response = await request(setup.app).get('/api/products/search?q=spread&lang=en');
+    const response = await search(setup.app, 'spread', 'en');
 
     expect(response.status).toBe(500);
     expect(response.body).toEqual({ error: 'Unexpected server error' });
     expect(setup.repository.saveSearch).not.toHaveBeenCalled();
     expect(errorLog).toHaveBeenCalledWith('Unexpected request failure', {
-      method: 'GET',
+      method: 'POST',
       path: '/api/products/search',
     });
     errorLog.mockRestore();
@@ -233,7 +255,7 @@ describe('Foodscope API', () => {
   it('returns a safe upstream failure', async () => {
     const setup = harness();
     vi.mocked(setup.dependencies.products.search).mockRejectedValueOnce(new Error('secret upstream detail'));
-    const response = await request(setup.app).get('/api/products/search?q=milk&lang=en');
+    const response = await search(setup.app, 'milk', 'en');
     expect(response.status).toBe(502);
     expect(response.body).toEqual({ error: 'Product search is temporarily unavailable' });
   });
@@ -242,7 +264,7 @@ describe('Foodscope API', () => {
     const setup = harness();
     vi.mocked(setup.dependencies.products.search).mockRejectedValueOnce(new ProductProviderRateLimitError(17));
 
-    const response = await request(setup.app).get('/api/products/search?q=milk&lang=en');
+    const response = await search(setup.app, 'milk', 'en');
 
     expect(response.status).toBe(503);
     expect(response.headers['retry-after']).toBe('17');
