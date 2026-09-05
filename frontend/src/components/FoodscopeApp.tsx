@@ -61,6 +61,16 @@ function wait(ms: number, signal: AbortSignal) {
   });
 }
 
+function isUserState(value: unknown): value is UserState {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate.email === 'string'
+    && typeof candidate.subscriptionStatus === 'string'
+    && (candidate.subscriptionCurrentPeriodEnd === null || typeof candidate.subscriptionCurrentPeriodEnd === 'string')
+    && typeof candidate.nutritionAccess === 'boolean'
+    && typeof candidate.billingAvailable === 'boolean';
+}
+
 function ProductCard({ product, messages }: { product: Product; messages: Messages }) {
   const [failedImage, setFailedImage] = useState<string | null>(null);
   const showImage = product.image && failedImage !== product.image;
@@ -126,7 +136,9 @@ export function FoodscopeApp() {
     for (const delayMs of delays) {
       try {
         if (delayMs) await wait(delayMs, controller.signal);
-        loadedAccount = await api<UserState>('/api/user', { signal: controller.signal });
+        const candidate = await api<unknown>('/api/user', { signal: controller.signal });
+        if (!isUserState(candidate)) throw new Error('Invalid account response');
+        loadedAccount = candidate;
         if (controller.signal.aborted || requestId !== accountSequence.current) return;
         if (loadedAccount.nutritionAccess) break;
       } catch {
@@ -255,7 +267,7 @@ export function FoodscopeApp() {
           <div className="plan-top"><span className="spark" aria-hidden="true">✣</span><div><p>{messages.plan}</p><strong>{accountState === 'loading' ? messages.loading : accountState === 'error' ? messages.accountUnavailable : user?.nutritionAccess ? messages.active : messages.inactive}</strong></div><span aria-hidden="true" className={`status-dot ${accountState === 'ready' && user?.nutritionAccess ? 'on' : ''}`} /></div>
           <p>{messages.subscriptionBody}</p>
           {accountState === 'error' && <button onClick={retryAccount}>{messages.retryAccount}<span aria-hidden="true">↻</span></button>}
-          {accountState === 'ready' && !user?.nutritionAccess && user?.billingAvailable !== false && <button onClick={() => void subscribe()} disabled={subscribing}>{subscribing ? messages.redirecting : messages.subscribe}<span aria-hidden="true">↗</span></button>}
+          {accountState === 'ready' && !user?.nutritionAccess && user?.billingAvailable === true && <button onClick={() => void subscribe()} disabled={subscribing}>{subscribing ? messages.redirecting : messages.subscribe}<span aria-hidden="true">↗</span></button>}
           {accountState === 'ready' && !user?.nutritionAccess && user?.billingAvailable === false && <p className="plan-note">{messages.checkoutUnavailable}</p>}
           {checkoutError && <p className="plan-alert" role="alert">{messages.checkoutError}</p>}
           <small>{messages.monthly}</small>

@@ -10,6 +10,21 @@ vi.mock('next/image', () => ({
   ),
 }));
 
+const accountState = (overrides: Partial<{
+  email: string;
+  subscriptionStatus: string;
+  subscriptionCurrentPeriodEnd: string | null;
+  nutritionAccess: boolean;
+  billingAvailable: boolean;
+}> = {}) => ({
+  email: 'demo@foodscope.local',
+  subscriptionStatus: 'inactive',
+  subscriptionCurrentPeriodEnd: null,
+  nutritionAccess: false,
+  billingAvailable: true,
+  ...overrides,
+});
+
 describe('Foodscope locale switching', () => {
   afterEach(() => {
     cleanup();
@@ -23,7 +38,7 @@ describe('Foodscope locale switching', () => {
       void init;
       const url = String(input);
       const body = url.includes('/api/user')
-        ? { email: 'demo@foodscope.local', subscriptionStatus: 'inactive', subscriptionCurrentPeriodEnd: null, nutritionAccess: false }
+        ? accountState()
         : url.includes('/api/searches/recent') ? { searches: [] } : { products: [] };
       return { ok: true, json: async () => body } as Response;
     });
@@ -48,7 +63,7 @@ describe('Foodscope locale switching', () => {
   it('links the product data and image attribution to their licenses', () => {
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
       const body = String(input).includes('/api/user')
-        ? { nutritionAccess: false }
+        ? accountState()
         : { searches: [] };
       return { ok: true, json: async () => body } as Response;
     }));
@@ -76,7 +91,7 @@ describe('Foodscope locale switching', () => {
     const second = new Promise<Response>((resolve) => { resolveSecond = resolve; });
     const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
-      if (url.includes('/api/user')) return { ok: true, json: async () => ({ nutritionAccess: false }) } as Response;
+      if (url.includes('/api/user')) return { ok: true, json: async () => accountState() } as Response;
       if (url.includes('/api/searches/recent')) {
         return { ok: true, json: async () => ({ searches: [
           { id: 1, query: 'first', locale: 'en', createdAt: '' },
@@ -115,7 +130,7 @@ describe('Foodscope locale switching', () => {
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
       if (url.includes('/api/user')) {
-        return { ok: true, json: async () => ({ nutritionAccess: false }) } as Response;
+        return { ok: true, json: async () => accountState() } as Response;
       }
       if (url.includes('/api/searches/recent')) {
         return { ok: true, json: async () => ({ searches: [
@@ -142,7 +157,7 @@ describe('Foodscope locale switching', () => {
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
       const body = url.includes('/api/user')
-        ? { nutritionAccess: true }
+        ? accountState({ nutritionAccess: true, subscriptionStatus: 'active' })
         : url.includes('/api/searches/recent')
           ? { searches: [] }
           : { products: [{
@@ -173,7 +188,10 @@ describe('Foodscope locale switching', () => {
       accountReads += 1;
       return {
         ok: true,
-        json: async () => ({ nutritionAccess: accountReads >= 3 }),
+        json: async () => accountState({
+          nutritionAccess: accountReads >= 3,
+          subscriptionStatus: accountReads >= 3 ? 'active' : 'inactive',
+        }),
       } as Response;
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -195,7 +213,7 @@ describe('Foodscope locale switching', () => {
         return { ok: true, json: async () => ({ searches: [] }) } as Response;
       }
       accountReads += 1;
-      return { ok: true, json: async () => ({ nutritionAccess: false }) } as Response;
+      return { ok: true, json: async () => accountState() } as Response;
     }));
 
     render(<FoodscopeApp />);
@@ -223,7 +241,7 @@ describe('Foodscope locale switching', () => {
 
     await act(async () => resolveAccount({
       ok: true,
-      json: async () => ({ nutritionAccess: false }),
+      json: async () => accountState(),
     } as Response));
     expect(await screen.findByRole('button', { name: 'Unlock nutrition' })).toBeInTheDocument();
   });
@@ -237,7 +255,7 @@ describe('Foodscope locale switching', () => {
       }
       accountReads += 1;
       if (accountReads === 1) throw new Error('database unavailable');
-      return { ok: true, json: async () => ({ nutritionAccess: true }) } as Response;
+      return { ok: true, json: async () => accountState({ nutritionAccess: true, subscriptionStatus: 'active' }) } as Response;
     }));
 
     render(<FoodscopeApp />);
@@ -252,7 +270,7 @@ describe('Foodscope locale switching', () => {
   it('does not offer a Checkout action when optional billing is unavailable', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
       const body = String(input).includes('/api/user')
-        ? { nutritionAccess: false, billingAvailable: false }
+        ? accountState({ billingAvailable: false })
         : { searches: [] };
       return { ok: true, json: async () => body } as Response;
     }));
@@ -261,6 +279,21 @@ describe('Foodscope locale switching', () => {
 
     expect(await screen.findByText('Stripe test Checkout is not configured.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Unlock nutrition' })).not.toBeInTheDocument();
+  });
+
+  it('fails closed when the account response is incomplete', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const body = String(input).includes('/api/user')
+        ? { nutritionAccess: false }
+        : { searches: [] };
+      return { ok: true, json: async () => body } as Response;
+    }));
+
+    render(<FoodscopeApp />);
+
+    expect(await screen.findByRole('button', { name: 'Retry plan status' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Unlock nutrition' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Stripe test Checkout is not configured.')).not.toBeInTheDocument();
   });
 
   it('recovers from an account request that never responds', async () => {
@@ -286,7 +319,7 @@ describe('Foodscope locale switching', () => {
     vi.stubGlobal('fetch', vi.fn((input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
       if (url.includes('/api/user')) {
-        return Promise.resolve({ ok: true, json: async () => ({ nutritionAccess: false }) } as Response);
+        return Promise.resolve({ ok: true, json: async () => accountState() } as Response);
       }
       if (url.includes('/api/searches/recent')) {
         return Promise.resolve({ ok: true, json: async () => ({ searches: [] }) } as Response);
@@ -311,7 +344,7 @@ describe('Foodscope locale switching', () => {
     vi.stubGlobal('fetch', vi.fn((input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
       if (url.includes('/api/user')) {
-        return Promise.resolve({ ok: true, json: async () => ({ nutritionAccess: false }) } as Response);
+        return Promise.resolve({ ok: true, json: async () => accountState() } as Response);
       }
       if (url.includes('/api/searches/recent')) {
         return Promise.resolve({ ok: true, json: async () => ({ searches: [] }) } as Response);
@@ -342,7 +375,7 @@ describe('Foodscope locale switching', () => {
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
       const body = url.includes('/api/user')
-        ? { nutritionAccess: false }
+        ? accountState()
         : url.includes('/api/searches/recent')
           ? { searches: [] }
           : { products: [{
@@ -365,7 +398,7 @@ describe('Foodscope locale switching', () => {
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
       const body = url.includes('/api/user')
-        ? { nutritionAccess: false }
+        ? accountState()
         : url.includes('/api/searches/recent')
           ? { searches: [] }
           : { products: [{
