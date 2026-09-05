@@ -25,6 +25,13 @@ export const REQUEST_TIMEOUT_MS = {
   checkout: 28_000,
 } as const;
 
+const visibleSearchCharacter = /[\p{L}\p{N}\p{P}\p{S}]/u;
+const controlCharacter = /\p{Cc}/u;
+
+function isUsableSearchQuery(value: string) {
+  return visibleSearchCharacter.test(value) && !controlCharacter.test(value);
+}
+
 class ApiResponseError extends Error {
   constructor(readonly status: number) {
     super('Request failed');
@@ -128,6 +135,7 @@ function isRecentSearchResponse(value: unknown): value is { searches: RecentSear
     if (!value || typeof value !== 'object') return false;
     const search = value as Record<string, unknown>;
     return typeof search.query === 'string' && Boolean(search.query.trim()) &&
+      isUsableSearchQuery(search.query) &&
       Array.from(search.query).length <= 120 &&
       typeof search.locale === 'string' && locales.includes(search.locale as Locale);
   });
@@ -275,7 +283,7 @@ export function FoodscopeApp() {
 
   async function runSearch(term: string, searchLocale: Locale = locale) {
     const clean = term.trim();
-    if (!clean) return;
+    if (!clean || !isUsableSearchQuery(clean)) return;
     const searchKey = `${searchLocale}\u0000${clean}`;
     if (activeSearchKey.current === searchKey) return;
     const operationId = retrySearchAttempt.current?.key === searchKey
@@ -391,7 +399,7 @@ export function FoodscopeApp() {
             <label className="sr-only" htmlFor="product-search">{messages.searchLabel}</label>
             <span aria-hidden="true" className="search-symbol">⌕</span>
             <input id="product-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={messages.searchPlaceholder} maxLength={120} />
-            <button disabled={loading || !query.trim()}>{loading ? messages.searching : messages.search}<span aria-hidden="true">→</span></button>
+            <button disabled={loading || !query.trim() || !isUsableSearchQuery(query)}>{loading ? messages.searching : messages.search}<span aria-hidden="true">→</span></button>
           </form>
           {recent.length > 0 && <div className="recent"><span>{messages.recent}</span><div>{recent.map((item, index) => <button key={`${item.locale}:${item.query}:${index}`} onClick={() => { const recentLocale = item.locale as Locale; setLocale(recentLocale); setQuery(item.query); void runSearch(item.query, recentLocale); }}>{item.query}<span className="recent-locale">{localeNames[item.locale as Locale]}</span></button>)}</div></div>}
           {checkoutCancelled && <p className="notice" role="status">{messages.checkoutCancelled}</p>}

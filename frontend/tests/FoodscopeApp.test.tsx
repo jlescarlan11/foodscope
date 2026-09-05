@@ -62,6 +62,27 @@ describe('Foodscope locale switching', () => {
     expect(searchBody.requestId).toMatch(/^[0-9a-f-]{36}$/);
   });
 
+  it('does not submit an invisible or control-character search', async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const body = String(input).includes('/api/user')
+        ? accountState()
+        : { searches: [] };
+      return { ok: true, json: async () => body } as Response;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<FoodscopeApp />);
+
+    await screen.findByText('Free plan');
+    const input = screen.getByLabelText('Search products');
+    fireEvent.change(input, { target: { value: '\u200b' } });
+    expect(screen.getByRole('button', { name: /^Search/ })).toBeDisabled();
+
+    fireEvent.change(input, { target: { value: 'milk\u0000' } });
+    fireEvent.submit(input.closest('form')!);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/api/products/search')))
+      .toBe(false);
+  });
+
   it('links the product data and image attribution to their licenses', () => {
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
       const body = String(input).includes('/api/user')
@@ -90,6 +111,7 @@ describe('Foodscope locale switching', () => {
     {},
     { searches: 'not-an-array' },
     { searches: [{ id: 1, query: null, locale: 'en', createdAt: '' }] },
+    { searches: [{ query: '\u200b', locale: 'en' }] },
     { searches: Array.from({ length: 9 }, (_value, index) => ({
       id: index + 1, query: `query-${index}`, locale: 'en', createdAt: '',
     })) },
