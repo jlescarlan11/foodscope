@@ -328,6 +328,30 @@ describe('Foodscope locale switching', () => {
     expect(window.location.search).toBe('');
   });
 
+  it('does not present an earlier account result after later Checkout polling fails', async () => {
+    vi.useFakeTimers();
+    window.history.replaceState(null, '', '/?checkout=success');
+    let accountReads = 0;
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('/api/searches/recent')) {
+        return { ok: true, json: async () => ({ searches: [] }) } as Response;
+      }
+      accountReads += 1;
+      if (accountReads === 1) {
+        return { ok: true, json: async () => accountState() } as Response;
+      }
+      throw new Error('database unavailable');
+    }));
+
+    render(<FoodscopeApp />);
+    await act(async () => vi.advanceTimersByTimeAsync(15_000));
+
+    expect(screen.getByRole('button', { name: 'Retry plan status' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Unlock nutrition' })).not.toBeInTheDocument();
+    expect(accountReads).toBe(5);
+  });
+
   it('reports a canceled Checkout once without polling or changing account state', async () => {
     window.history.replaceState(null, '', '/?checkout=cancelled');
     let accountReads = 0;

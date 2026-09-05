@@ -211,6 +211,7 @@ export function FoodscopeApp() {
         if (loadedAccount.nutritionAccess) break;
       } catch {
         if (controller.signal.aborted || requestId !== accountSequence.current) return;
+        loadedAccount = null;
       }
     }
     if (requestId !== accountSequence.current) return;
