@@ -1,7 +1,12 @@
 import type Stripe from 'stripe';
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
-import { canStartCheckout, CHECKOUT_ELIGIBLE_STATUSES, DEMO_USER_ID } from './constants.js';
+import {
+  canStartCheckout,
+  CHECKOUT_ELIGIBLE_STATUSES,
+  DEMO_USER_ID,
+  normalizeStripeSubscriptionStatus,
+} from './constants.js';
 import { CheckoutUnavailableError } from './errors.js';
 import { prisma } from './prisma.js';
 import type { Locale, } from './constants.js';
@@ -234,8 +239,11 @@ export function createRepository(database: typeof prisma): Repository {
               user.stripeSubscriptionId === currentSubscription.id ||
               isCheckoutHandoff
             )) {
+              const subscriptionStatus = normalizeStripeSubscriptionStatus(
+                currentSubscription.status,
+              );
               const shouldClearCheckoutAttempt = isCheckoutHandoff ||
-                !canStartCheckout(currentSubscription.status);
+                !canStartCheckout(subscriptionStatus);
               const customerId = typeof currentSubscription.customer === 'string'
                 ? currentSubscription.customer
                 : currentSubscription.customer.id;
@@ -244,7 +252,7 @@ export function createRepository(database: typeof prisma): Repository {
                 data: {
                   stripeCustomerId: customerId,
                   stripeSubscriptionId: currentSubscription.id,
-                  subscriptionStatus: currentSubscription.status,
+                  subscriptionStatus,
                   subscriptionCurrentPeriodEnd: subscriptionPeriodEnd(currentSubscription),
                   ...(shouldClearCheckoutAttempt ? {
                     stripeCheckoutAttemptId: null,

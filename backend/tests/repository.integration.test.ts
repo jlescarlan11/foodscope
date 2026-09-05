@@ -106,6 +106,19 @@ integration('Repository with MySQL', () => {
       .resolves.toMatchObject({ subscriptionStatus: 'unpaid' });
   });
 
+  it('persists a future overlength Stripe status as fail-closed unknown', async () => {
+    const current = subscription('active') as unknown as Record<string, unknown>;
+    current.status = 'future_status_that_does_not_fit_the_database_column_without_normalizing';
+
+    await subject.processStripeEvent(
+      event('evt_future_status', 'active'),
+      async () => current as unknown as Stripe.Subscription,
+    );
+
+    await expect(database.user.findUniqueOrThrow({ where: { id: DEMO_USER_ID } }))
+      .resolves.toMatchObject({ subscriptionStatus: 'unknown' });
+  });
+
   it('serializes current-state reads so a delayed active read cannot overwrite cancellation', async () => {
     let releaseFirst!: () => void;
     let firstReadStarted!: () => void;

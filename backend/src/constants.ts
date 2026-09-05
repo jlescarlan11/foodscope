@@ -23,6 +23,22 @@ export const hasNutritionAccess = (status: string, currentPeriodEnd: Date | null
   Number.isFinite(currentPeriodEnd.getTime()) &&
   currentPeriodEnd > now;
 
+export const STRIPE_SUBSCRIPTION_STATUSES = [
+  'active',
+  'canceled',
+  'incomplete',
+  'incomplete_expired',
+  'past_due',
+  'paused',
+  'trialing',
+  'unpaid',
+] as const;
+
+export const normalizeStripeSubscriptionStatus = (status: unknown) =>
+  typeof status === 'string' && STRIPE_SUBSCRIPTION_STATUSES.some((value) => value === status)
+    ? status
+    : 'unknown';
+
 export const CHECKOUT_ELIGIBLE_STATUSES = ['inactive', 'canceled', 'incomplete_expired'] as const;
 
 export const canStartCheckout = (status: string) =>
