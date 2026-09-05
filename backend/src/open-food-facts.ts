@@ -81,7 +81,26 @@ export function normalizeProduct(raw: unknown, locale: Locale): Omit<Product, 'n
 }
 
 export class OpenFoodFactsProvider implements ProductProvider {
-  constructor(private readonly userAgent: string, private readonly fetcher: typeof fetch = fetch) {}
+  private readonly requestTimestamps: number[] = [];
+
+  constructor(
+    private readonly userAgent: string,
+    private readonly fetcher: typeof fetch = fetch,
+    private readonly clock: () => number = Date.now,
+  ) {}
+
+  private reserveRequest() {
+    const now = this.clock();
+    while (this.requestTimestamps[0] !== undefined && this.requestTimestamps[0] <= now - 60_000) {
+      this.requestTimestamps.shift();
+    }
+    if (this.requestTimestamps.length >= 10) {
+      throw new ProductProviderRateLimitError(
+        Math.max(1, Math.ceil((this.requestTimestamps[0]! + 60_000 - now) / 1000)),
+      );
+    }
+    this.requestTimestamps.push(now);
+  }
 
   async search(query: string, locale: Locale, signal?: AbortSignal) {
     const params = new URLSearchParams({
@@ -95,14 +114,17 @@ export class OpenFoodFactsProvider implements ProductProvider {
         'code,product_name,product_name_en,product_name_nl,product_name_de,product_name_fr,brands,image_front_url,image_url,nutriments',
     });
     // Open Food Facts v2 only supports structured filters; plain-text search remains on this legacy endpoint.
-    const request = () => this.fetcher(`https://world.openfoodfacts.org/cgi/search.pl?${params}`, {
-      headers: {
-        'User-Agent': this.userAgent,
-        Accept: 'application/json',
-        'Accept-Language': locale,
-      },
-      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000),
-    });
+    const request = () => {
+      this.reserveRequest();
+      return this.fetcher(`https://world.openfoodfacts.org/cgi/search.pl?${params}`, {
+        headers: {
+          'User-Agent': this.userAgent,
+          Accept: 'application/json',
+          'Accept-Language': locale,
+        },
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000),
+      });
+    };
     let response = await request();
     if (response.status === 429 || response.status === 503) {
       throw new ProductProviderRateLimitError(retryAfterSeconds(response));

@@ -88,4 +88,20 @@ describe('Open Food Facts normalization', () => {
     await expect(pending).rejects.toBeDefined();
     expect(fetcher.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
   });
+
+  it('blocks an eleventh upstream search request within one minute', async () => {
+    let now = 1_000_000;
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ products: [] }), { status: 200 }));
+    const provider = new OpenFoodFactsProvider('FoodscopeTest/1.0', fetcher, () => now);
+
+    for (let requestNumber = 0; requestNumber < 10; requestNumber += 1) {
+      await provider.search('milk', 'en');
+    }
+    await expect(provider.search('blocked', 'en')).rejects.toMatchObject({ retryAfterSeconds: 60 });
+    expect(fetcher).toHaveBeenCalledTimes(10);
+
+    now += 60_000;
+    await expect(provider.search('available', 'en')).resolves.toEqual([]);
+    expect(fetcher).toHaveBeenCalledTimes(11);
+  });
 });
