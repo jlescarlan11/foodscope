@@ -119,10 +119,6 @@ export function createApp(deps: AppDependencies) {
         res.json({ received: true });
         return;
       }
-      if (await deps.repository.isStripeEventProcessed(event.id)) {
-        res.json({ received: true });
-        return;
-      }
       const retrieveSubscription = event.type.startsWith('customer.subscription.')
         ? (subscriptionId: string) => deps.billing!.retrieveSubscription(subscriptionId)
         : undefined;

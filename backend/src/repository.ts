@@ -213,16 +213,13 @@ export function createRepository(database: typeof prisma): Repository {
       });
       if (saved.count !== 1) throw new Error('Checkout attempt expired before it could be saved');
     },
-    async isStripeEventProcessed(eventId) {
-      return Boolean(await database.stripeWebhookEvent.findUnique({
-        where: { id: eventId },
-        select: { id: true },
-      }));
-    },
     async processStripeEvent(event, retrieveSubscription) {
-      try {
-        await database.$transaction(async (tx: Prisma.TransactionClient) => {
-          await tx.stripeWebhookEvent.create({ data: { id: event.id, type: event.type } });
+      await database.$transaction(async (tx: Prisma.TransactionClient) => {
+        const marker = await tx.stripeWebhookEvent.createMany({
+          data: [{ id: event.id, type: event.type }],
+          skipDuplicates: true,
+        });
+        if (marker.count === 0) return;
 
           if (event.type === 'checkout.session.completed') {
             const session = eventObject(event);
@@ -296,13 +293,6 @@ export function createRepository(database: typeof prisma): Repository {
             }
           }
         }, { maxWait: 5_000, timeout: 15_000 });
-      } catch (error) {
-        if (
-          isUniqueConstraintError(error) &&
-          await database.stripeWebhookEvent.findUnique({ where: { id: event.id }, select: { id: true } })
-        ) return;
-        throw error;
-      }
     },
   };
 }

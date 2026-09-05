@@ -33,7 +33,6 @@ function harness(status = 'inactive') {
     setStripeCustomer: vi.fn(async (_userId: string, customerId: string) => { user = { ...user, stripeCustomerId: customerId }; }),
     getOrCreateCheckoutAttempt: vi.fn(async () => ({ id: 'attempt_test', expiresAt: new Date(), sessionUrl: null })),
     completeCheckoutAttempt: vi.fn(async () => undefined),
-    isStripeEventProcessed: vi.fn(async () => false),
     processStripeEvent: vi.fn(async (
       event: Stripe.Event,
       retrieveSubscription?: (subscriptionId: string) => Promise<Stripe.Subscription>,
@@ -720,7 +719,7 @@ describe('Foodscope API', () => {
 
   it('acknowledges a verified duplicate without another Stripe read', async () => {
     const setup = harness();
-    vi.mocked(setup.repository.isStripeEventProcessed).mockResolvedValueOnce(true);
+    vi.mocked(setup.repository.processStripeEvent).mockResolvedValueOnce(undefined);
 
     const response = await request(setup.app)
       .post('/api/webhooks/stripe')
@@ -730,7 +729,7 @@ describe('Foodscope API', () => {
 
     expect(response.status).toBe(200);
     expect(setup.dependencies.billing!.retrieveSubscription).not.toHaveBeenCalled();
-    expect(setup.repository.processStripeEvent).not.toHaveBeenCalled();
+    expect(setup.repository.processStripeEvent).toHaveBeenCalledOnce();
   });
 
   it('acknowledges an irrelevant verified event without Stripe or database work', async () => {
@@ -748,9 +747,8 @@ describe('Foodscope API', () => {
       .send('{}');
 
     expect(response.status).toBe(200);
-    expect(setup.repository.isStripeEventProcessed).not.toHaveBeenCalled();
-    expect(setup.dependencies.billing!.retrieveSubscription).not.toHaveBeenCalled();
     expect(setup.repository.processStripeEvent).not.toHaveBeenCalled();
+    expect(setup.dependencies.billing!.retrieveSubscription).not.toHaveBeenCalled();
   });
 
   it.each([true, undefined])(
@@ -770,7 +768,6 @@ describe('Foodscope API', () => {
 
       expect(response.status).toBe(200);
       expect(response.body).toEqual({ received: true });
-      expect(setup.repository.isStripeEventProcessed).not.toHaveBeenCalled();
       expect(setup.repository.processStripeEvent).not.toHaveBeenCalled();
       expect(setup.dependencies.billing!.retrieveSubscription).not.toHaveBeenCalled();
     },
@@ -796,7 +793,6 @@ describe('Foodscope API', () => {
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ received: true });
-    expect(setup.repository.isStripeEventProcessed).not.toHaveBeenCalled();
     expect(setup.repository.processStripeEvent).not.toHaveBeenCalled();
     expect(setup.dependencies.billing!.retrieveSubscription).not.toHaveBeenCalled();
   });

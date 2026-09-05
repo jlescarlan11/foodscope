@@ -23,6 +23,10 @@ function subscriptionEvent(id = 'evt_stale') {
   } as Stripe.Event;
 }
 
+const eventMarker = () => ({
+  createMany: vi.fn(async () => ({ count: 1 })),
+});
+
 describe('Stripe webhook repository', () => {
   it('selects only workflow-required demo-user columns', async () => {
     const findUnique = vi.fn(async () => null);
@@ -116,7 +120,9 @@ describe('Stripe webhook repository', () => {
     const operations: string[] = [];
     const update = vi.fn(async () => { operations.push('update'); });
     const tx = {
-      stripeWebhookEvent: { create: vi.fn(async () => { operations.push('event'); }) },
+      stripeWebhookEvent: {
+        createMany: vi.fn(async () => { operations.push('event'); return { count: 1 }; }),
+      },
       $queryRaw: vi.fn(async () => { operations.push('lock'); return [{ id: DEMO_USER_ID }]; }),
       user: { update, findUnique: vi.fn(async () => ({
         id: DEMO_USER_ID,
@@ -152,7 +158,7 @@ describe('Stripe webhook repository', () => {
   it('ignores a different subscription even when it carries demo-user metadata', async () => {
     const update = vi.fn();
     const tx = {
-      stripeWebhookEvent: { create: vi.fn() },
+      stripeWebhookEvent: eventMarker(),
       $queryRaw: vi.fn(async () => [{ id: DEMO_USER_ID }]),
       user: {
         update,
@@ -180,7 +186,7 @@ describe('Stripe webhook repository', () => {
   it('does not adopt an unproven subscription when no subscription is stored', async () => {
     const update = vi.fn();
     const tx = {
-      stripeWebhookEvent: { create: vi.fn() },
+      stripeWebhookEvent: eventMarker(),
       $queryRaw: vi.fn(async () => [{ id: DEMO_USER_ID }]),
       user: {
         update,
@@ -208,7 +214,7 @@ describe('Stripe webhook repository', () => {
   it('accepts a new subscription only when it matches the durable Checkout attempt', async () => {
     const update = vi.fn();
     const tx = {
-      stripeWebhookEvent: { create: vi.fn() },
+      stripeWebhookEvent: eventMarker(),
       $queryRaw: vi.fn(async () => [{ id: DEMO_USER_ID }]),
       user: {
         update,
@@ -245,7 +251,7 @@ describe('Stripe webhook repository', () => {
   it('preserves a new Checkout attempt when an old terminal subscription event arrives', async () => {
     const update = vi.fn();
     const tx = {
-      stripeWebhookEvent: { create: vi.fn() },
+      stripeWebhookEvent: eventMarker(),
       $queryRaw: vi.fn(async () => [{ id: DEMO_USER_ID }]),
       user: {
         update,
@@ -280,7 +286,7 @@ describe('Stripe webhook repository', () => {
     async (status) => {
       const update = vi.fn();
       const tx = {
-        stripeWebhookEvent: { create: vi.fn() },
+        stripeWebhookEvent: eventMarker(),
         $queryRaw: vi.fn(async () => [{ id: DEMO_USER_ID }]),
         user: {
           update,
@@ -317,7 +323,7 @@ describe('Stripe webhook repository', () => {
   ])('fails closed when an active subscription has malformed items %p', async (items) => {
     const update = vi.fn();
     const tx = {
-      stripeWebhookEvent: { create: vi.fn() },
+      stripeWebhookEvent: eventMarker(),
       $queryRaw: vi.fn(async () => [{ id: DEMO_USER_ID }]),
       user: {
         update,
@@ -352,7 +358,7 @@ describe('Stripe webhook repository', () => {
   it('does not call Stripe for a subscription event that cannot map to the demo user', async () => {
     const retrieveSubscription = vi.fn(async () => subscription('active'));
     const tx = {
-      stripeWebhookEvent: { create: vi.fn() },
+      stripeWebhookEvent: eventMarker(),
       $queryRaw: vi.fn(async () => []),
       user: { update: vi.fn(), findUnique: vi.fn() },
     };
@@ -374,7 +380,7 @@ describe('Stripe webhook repository', () => {
   ] as const)('durably ignores a malformed %s event without Stripe or account work', async (type) => {
     const retrieveSubscription = vi.fn(async () => subscription('active'));
     const tx = {
-      stripeWebhookEvent: { create: vi.fn() },
+      stripeWebhookEvent: eventMarker(),
       $queryRaw: vi.fn(),
       user: { update: vi.fn(), updateMany: vi.fn(), findUnique: vi.fn() },
     };
@@ -391,8 +397,9 @@ describe('Stripe webhook repository', () => {
     await expect(createRepository(database).processStripeEvent(malformed, retrieveSubscription))
       .resolves.toBeUndefined();
 
-    expect(tx.stripeWebhookEvent.create).toHaveBeenCalledWith({
-      data: { id: 'evt_malformed', type },
+    expect(tx.stripeWebhookEvent.createMany).toHaveBeenCalledWith({
+      data: [{ id: 'evt_malformed', type }],
+      skipDuplicates: true,
     });
     expect(tx.$queryRaw).not.toHaveBeenCalled();
     expect(retrieveSubscription).not.toHaveBeenCalled();
@@ -400,31 +407,35 @@ describe('Stripe webhook repository', () => {
     expect(tx.user.update).not.toHaveBeenCalled();
   });
 
-  it('treats a concurrent event-id conflict as success only when that event is durably present', async () => {
-    const duplicate = Object.assign(new Error('duplicate'), { code: 'P2002' });
+  it('skips duplicate events atomically without Stripe work', async () => {
+    const retrieveSubscription = vi.fn(async () => subscription('active'));
+    const tx = {
+      stripeWebhookEvent: { createMany: vi.fn(async () => ({ count: 0 })) },
+      $queryRaw: vi.fn(),
+      user: { findUnique: vi.fn(), update: vi.fn() },
+    };
     const database = {
-      $transaction: vi.fn(async () => { throw duplicate; }),
-      stripeWebhookEvent: { findUnique: vi.fn(async () => ({ id: 'evt_duplicate' })) },
+      $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<void>) => callback(tx)),
     } as unknown as typeof prisma;
 
     await expect(createRepository(database).processStripeEvent(
       subscriptionEvent('evt_duplicate'),
-      async () => subscription('active'),
-    ))
-      .resolves.toBeUndefined();
+      retrieveSubscription,
+    )).resolves.toBeUndefined();
+    expect(retrieveSubscription).not.toHaveBeenCalled();
+    expect(tx.$queryRaw).not.toHaveBeenCalled();
   });
 
-  it('does not hide unrelated unique-constraint failures', async () => {
-    const conflict = Object.assign(new Error('different unique constraint'), { code: 'P2002' });
+  it('does not hide transactional failures', async () => {
+    const failure = new Error('transaction failed');
     const database = {
-      $transaction: vi.fn(async () => { throw conflict; }),
-      stripeWebhookEvent: { findUnique: vi.fn(async () => null) },
+      $transaction: vi.fn(async () => { throw failure; }),
     } as unknown as typeof prisma;
 
     await expect(createRepository(database).processStripeEvent(
       subscriptionEvent(),
       async () => subscription('active'),
     ))
-      .rejects.toBe(conflict);
+      .rejects.toBe(failure);
   });
 });
