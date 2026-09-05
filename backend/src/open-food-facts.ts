@@ -118,9 +118,11 @@ export function normalizeProduct(raw: unknown, locale: Locale): Omit<Product, 'n
   const nutriments = isRecord(raw.nutriments) ? raw.nutriments : {};
   const nutrition: Nutrition = {};
 
-  for (const [localKey, upstreamKey, unit] of nutritionFields) {
-    const value = numberValue(nutriments[upstreamKey], NUTRITION_RULES[localKey].maximum);
-    if (value !== undefined) nutrition[localKey] = { value, unit };
+  if (raw.nutrition_data_per === '100g') {
+    for (const [localKey, upstreamKey, unit] of nutritionFields) {
+      const value = numberValue(nutriments[upstreamKey], NUTRITION_RULES[localKey].maximum);
+      if (value !== undefined) nutrition[localKey] = { value, unit };
+    }
   }
 
   return {
@@ -169,6 +171,7 @@ export class OpenFoodFactsProvider implements ProductProvider {
         'brands',
         'image_front_url',
         'image_url',
+        'nutrition_data_per',
         'nutriments',
       ].join(','),
     });

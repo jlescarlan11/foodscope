@@ -145,6 +145,8 @@ The behavioral suite covers invalid search input, Open Food Facts normalization 
 - The UI visibly attributes Open Food Facts data under ODbL and product images under CC BY-SA 3.0.
 - A selected-locale field request, 1 MiB response ceiling, and small DTO bound upstream transfer and
   prevent leaking the large provider payload or provider-specific field names.
+- Nutrition is exposed only when Open Food Facts explicitly declares a `100g` basis; its legacy
+  `_100g` keys can represent 100 ml for liquids, so volume, serving, and ambiguous rows fail closed.
 - Remote product-image optimization retains the server-side privacy boundary but rejects source
   responses larger than 5 MB before they can consume the optimizer's much larger default allowance.
 - The Express response is reconstructed from explicitly public product fields for inactive users, so restricted values cannot cross the API boundary.

@@ -6,6 +6,7 @@ describe('Open Food Facts normalization', () => {
     expect(normalizeProduct({
       code: '123', product_name: 'Generic', product_name_de: 'Haferdrink', brands: 'Good Foods',
       product_quantity_unit: 'g',
+      nutrition_data_per: '100g',
       nutriments: { 'energy-kcal_100g': 44, 'fat_100g': 1.5, ignored: 99 },
     }, 'de')).toEqual({
       id: '123', name: 'Haferdrink', brand: 'Good Foods', image: null,
@@ -19,6 +20,7 @@ describe('Open Food Facts normalization', () => {
       image_front_url: 'javascript:alert(1)',
       image_url: 'https://tracker.example/product.jpg',
       product_quantity_unit: 'g',
+      nutrition_data_per: '100g',
       nutriments: {
         'energy-kcal_100g': 1_001,
         'fat_100g': -1,
@@ -45,6 +47,7 @@ describe('Open Food Facts normalization', () => {
       expect(normalizeProduct({
         code: 'packaging-unit-is-unrelated',
         product_quantity_unit: productQuantityUnit,
+        nutrition_data_per: '100g',
         nutriments: { 'energy-kcal_100g': 44, 'fat_100g': 1.5 },
       }, 'en')).toEqual({
         id: 'packaging-unit-is-unrelated', name: null, brand: null, image: null,
@@ -68,6 +71,19 @@ describe('Open Food Facts normalization', () => {
       id: 'wrong-nutrition-bases', name: null, brand: null, image: null,
     });
   });
+
+  it.each(['100ml', 'serving', undefined, null])(
+    'withholds _100g fields when the declared nutrition basis is %s',
+    (nutritionDataPer) => {
+      expect(normalizeProduct({
+        code: 'ambiguous-nutrition-basis',
+        nutrition_data_per: nutritionDataPer,
+        nutriments: { 'energy-kcal_100g': 44, 'fat_100g': 1.5 },
+      }, 'en')).toEqual({
+        id: 'ambiguous-nutrition-basis', name: null, brand: null, image: null,
+      });
+    },
+  );
 
   it('falls back to the generic name and tolerates missing fields', () => {
     expect(normalizeProduct({ code: '456', product_name: 'Generic only' }, 'fr')).toEqual({
@@ -121,6 +137,7 @@ describe('Open Food Facts normalization', () => {
       'brands',
       'image_front_url',
       'image_url',
+      'nutrition_data_per',
       'nutriments',
     ]);
     expect(fetcher.mock.calls[0]?.[1]?.headers).toMatchObject({ 'Accept-Language': 'fr' });
