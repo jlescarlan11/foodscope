@@ -5,7 +5,7 @@ import { prisma } from './prisma.js';
 import { repository } from './repository.js';
 import { createBillingProvider } from './stripe.js';
 import { configureHttpServer } from './http-server.js';
-import { initializeDatabase } from './database-startup.js';
+import { disconnectDatabase, initializeDatabase } from './database-startup.js';
 
 const config = loadConfig();
 
@@ -27,17 +27,22 @@ async function start() {
     console.log(`Foodscope API listening on http://${displayHost}:${config.port}`);
   });
   configureHttpServer(server);
+  const closeDatabase = () => {
+    void disconnectDatabase(prisma).then((closed) => {
+      if (!closed) process.exitCode = 1;
+    });
+  };
   server.once('error', () => {
     console.error('Foodscope API failed to listen');
     process.exitCode = 1;
-    void prisma.$disconnect();
+    closeDatabase();
   });
 
   let shuttingDown = false;
   const shutdown = () => {
     if (shuttingDown) return;
     shuttingDown = true;
-    server.close(() => void prisma.$disconnect());
+    server.close(closeDatabase);
   };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
