@@ -95,7 +95,11 @@ describe('Foodscope API', () => {
     const setup = harness('active');
     vi.mocked(setup.dependencies.products.search).mockResolvedValueOnce([{
       id: '3017620422003', name: 'Hazelnut spread', brand: null, image: null,
-      nutrition: { fat: { value: 30.9, unit: 'g' } },
+      nutrition: {
+        fat: { value: 30.9, unit: 'g', providerNote: 'must not cross' },
+        energyKcal: { value: 44, unit: 'g' },
+        privateNutrient: { value: 99, unit: 'g' },
+      },
       providerInternalField: 'must not cross the API boundary',
     } as never]);
 
@@ -103,6 +107,9 @@ describe('Foodscope API', () => {
     expect(response.body.products[0]).toMatchObject({
       nutritionLocked: false,
       nutrition: { fat: { value: 30.9, unit: 'g' } },
+    });
+    expect(response.body.products[0].nutrition).toEqual({
+      fat: { value: 30.9, unit: 'g' },
     });
     expect(response.body.products[0]).not.toHaveProperty('providerInternalField');
     expect(response.headers['cache-control']).toBe('no-store');

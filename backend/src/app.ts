@@ -4,9 +4,9 @@ import helmet from 'helmet';
 import type Stripe from 'stripe';
 import { z } from 'zod';
 import type { AppConfig } from './config.js';
-import { isActiveSubscription, SUPPORTED_LOCALES } from './constants.js';
+import { isActiveSubscription, NUTRITION_RULES, SUPPORTED_LOCALES } from './constants.js';
 import { ProductProviderRateLimitError } from './open-food-facts.js';
-import type { BillingProvider, ProductProvider, Repository } from './types.js';
+import type { BillingProvider, Nutrition, ProductProvider, Repository } from './types.js';
 
 export type AppDependencies = {
   config: AppConfig;
@@ -26,6 +26,25 @@ const relevantStripeEventTypes = new Set<Stripe.Event.Type>([
   'customer.subscription.updated',
   'customer.subscription.deleted',
 ]);
+
+function publicNutrition(value: Nutrition | undefined) {
+  if (!value) return undefined;
+  const nutrition: Nutrition = {};
+  for (const key of Object.keys(NUTRITION_RULES) as Array<keyof Nutrition>) {
+    const nutrient = value[key];
+    const rule = NUTRITION_RULES[key];
+    if (
+      nutrient &&
+      Number.isFinite(nutrient.value) &&
+      nutrient.value >= 0 &&
+      nutrient.value <= rule.maximum &&
+      nutrient.unit === rule.unit
+    ) {
+      nutrition[key] = { value: nutrient.value, unit: nutrient.unit };
+    }
+  }
+  return Object.keys(nutrition).length ? nutrition : undefined;
+}
 
 const asyncRoute =
   (handler: (req: Request, res: Response) => Promise<void>) =>
@@ -130,16 +149,20 @@ export function createApp(deps: AppDependencies) {
       }
 
       await deps.repository.saveSearch(user.id, parsed.data.q, parsed.data.lang);
-      const hasNutrition = results.some((product) => product.nutrition !== undefined);
+      const publicResults = results.map((product) => ({
+        product,
+        nutrition: publicNutrition(product.nutrition),
+      }));
+      const hasNutrition = publicResults.some(({ nutrition }) => nutrition !== undefined);
       const currentUser = hasNutrition ? await deps.repository.getDemoUser() : user;
       const unlocked = currentUser ? isActiveSubscription(currentUser.subscriptionStatus) : false;
-      const products = results.map((product) => {
+      const products = publicResults.map(({ product, nutrition }) => {
         if (unlocked) return {
           id: product.id,
           name: product.name,
           brand: product.brand,
           image: product.image,
-          ...(product.nutrition ? { nutrition: product.nutrition } : {}),
+          ...(nutrition ? { nutrition } : {}),
           nutritionLocked: false,
         };
         return {
@@ -147,7 +170,7 @@ export function createApp(deps: AppDependencies) {
           name: product.name,
           brand: product.brand,
           image: product.image,
-          nutritionLocked: product.nutrition !== undefined,
+          nutritionLocked: nutrition !== undefined,
         };
       });
       res.json({ products });

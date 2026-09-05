@@ -1,4 +1,4 @@
-import type { Locale } from './constants.js';
+import { NUTRITION_RULES, type Locale } from './constants.js';
 import type { Nutrition, Product, ProductProvider } from './types.js';
 import { setTimeout as delay } from 'node:timers/promises';
 
@@ -99,7 +99,7 @@ export function normalizeProduct(raw: unknown, locale: Locale): Omit<Product, 'n
   const nutrition: Nutrition = {};
 
   for (const [localKey, upstreamKey, unit] of nutritionFields) {
-    const value = numberValue(nutriments[upstreamKey], unit === 'g' ? 100 : 1_000);
+    const value = numberValue(nutriments[upstreamKey], NUTRITION_RULES[localKey].maximum);
     if (value !== undefined) nutrition[localKey] = { value, unit };
   }
 
