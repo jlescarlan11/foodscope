@@ -36,6 +36,8 @@ describe('Foodscope locale switching', () => {
 
     await userEvent.selectOptions(screen.getByLabelText('Language'), 'de');
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Wissen, wasdrin ist.');
+    expect(screen.getByText(/Angaben können unvollständig oder falsch sein/)).toBeInTheDocument();
+    expect(document.querySelector('.attribution')).toHaveTextContent('Enthält Informationen von');
     await userEvent.type(screen.getByLabelText('Produkte suchen'), 'Hafermilch');
     await userEvent.click(screen.getByRole('button', { name: /Suchen/ }));
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('q=Hafermilch&lang=de'))).toBe(true);

@@ -269,9 +269,9 @@ export function FoodscopeApp() {
       <footer>
         <span>Foodscope</span>
         <span className="attribution">
-          Contains information from <a href="https://world.openfoodfacts.org/">Open Food Facts</a>,
-          {' '}available under the <a href="https://opendatacommons.org/licenses/odbl/1-0/">ODbL</a>.
-          {' '}Product images are available under <a href="https://creativecommons.org/licenses/by-sa/3.0/">CC BY-SA 3.0</a>.
+          {messages.attributionPrefix} <a href="https://world.openfoodfacts.org/">Open Food Facts</a>,
+          {' '}{messages.attributionLicense} <a href="https://opendatacommons.org/licenses/odbl/1-0/">ODbL</a>.
+          {' '}{messages.imageAttribution} <a href="https://creativecommons.org/licenses/by-sa/3.0/">CC BY-SA 3.0</a>.
         </span>
       </footer>
     </main>
