@@ -31,6 +31,14 @@ describe('Open Food Facts normalization', () => {
     });
   });
 
+  it.each([
+    'https://user:secret@images.openfoodfacts.org/product.jpg',
+    'https://tracker.example/product.jpg',
+  ])('rejects credentialed or untrusted image URL %s', (image) => {
+    expect(normalizeProduct({ code: 'safe-image', image_front_url: image }, 'en')?.image)
+      .toBeNull();
+  });
+
   it.each(['ml', undefined])(
     'treats %s product-basis nutrition as unavailable instead of per 100 g',
     (productQuantityUnit) => {
