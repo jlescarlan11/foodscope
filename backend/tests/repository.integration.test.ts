@@ -45,8 +45,20 @@ integration('Repository with MySQL', () => {
   const subject = createRepository(database);
 
   beforeAll(async () => {
-    await database.user.create({
-      data: {
+    await database.user.upsert({
+      where: { id: DEMO_USER_ID },
+      update: {
+        email: DEMO_USER_EMAIL,
+        stripeCustomerId: 'cus_integration',
+        stripeSubscriptionId: 'sub_integration',
+        stripeCheckoutAttemptId: null,
+        stripeCheckoutSessionId: null,
+        stripeCheckoutSessionUrl: null,
+        stripeCheckoutExpiresAt: null,
+        subscriptionStatus: 'inactive',
+        subscriptionCurrentPeriodEnd: null,
+      },
+      create: {
         id: DEMO_USER_ID,
         email: DEMO_USER_EMAIL,
         stripeCustomerId: 'cus_integration',
