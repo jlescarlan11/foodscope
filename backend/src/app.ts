@@ -19,7 +19,7 @@ export type AppDependencies = {
 const searchSchema = z.object({
   requestId: z.string().uuid(),
   q: z.string().trim().min(1).max(120),
-  lang: z.enum(SUPPORTED_LOCALES).default('en'),
+  lang: z.enum(SUPPORTED_LOCALES),
 });
 
 const relevantStripeEventTypes = new Set<Stripe.Event.Type>([

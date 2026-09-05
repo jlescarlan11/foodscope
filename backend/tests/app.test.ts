@@ -86,11 +86,19 @@ function search(
 describe('Foodscope API', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('rejects blank searches and unsupported locales', async () => {
-    const { app } = harness();
+  it('rejects blank searches and missing or unsupported locales', async () => {
+    const setup = harness();
+    const { app } = setup;
     expect((await search(app, ' ', 'en')).status).toBe(400);
     expect((await search(app, 'milk', 'es')).status).toBe(400);
     expect((await search(app, 'milk', 'en', 'not-a-request-id')).status).toBe(400);
+    expect((await request(app)
+      .post('/api/products/search')
+      .set('origin', 'http://localhost:3000')
+      .send({ requestId: '00000000-0000-4000-8000-000000000002', q: 'milk' })).status)
+      .toBe(400);
+    expect(setup.dependencies.products.search).not.toHaveBeenCalled();
+    expect(setup.repository.saveSearch).not.toHaveBeenCalled();
   });
 
   it('rejects passive and cross-site search requests before provider work', async () => {
