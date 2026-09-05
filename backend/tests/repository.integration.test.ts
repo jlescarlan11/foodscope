@@ -402,6 +402,21 @@ integration('Repository with MySQL', () => {
     await expect(database.user.findUniqueOrThrow({ where: { id: DEMO_USER_ID } }))
       .resolves.toMatchObject({ stripeCheckoutAttemptId: attempt.id });
 
+    const wrongOwner = subscription('active');
+    wrongOwner.id = 'sub_wrong_owner';
+    wrongOwner.metadata.checkoutAttemptId = attempt.id;
+    wrongOwner.metadata.demoUserId = 'unexpected-user';
+    await subject.processStripeEvent({
+      id: 'evt_wrong_owner_handoff',
+      type: 'customer.subscription.created',
+      data: { object: wrongOwner },
+    } as unknown as Stripe.Event, async () => wrongOwner);
+    await expect(database.user.findUniqueOrThrow({ where: { id: DEMO_USER_ID } }))
+      .resolves.toMatchObject({
+        stripeSubscriptionId: 'sub_integration',
+        stripeCheckoutAttemptId: attempt.id,
+      });
+
     const replacement = subscription('active');
     replacement.id = 'sub_replacement';
     replacement.metadata.checkoutAttemptId = attempt.id;

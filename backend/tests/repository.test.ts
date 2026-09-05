@@ -496,6 +496,36 @@ describe('Stripe webhook repository', () => {
     }));
   });
 
+  it('does not adopt a Checkout handoff carrying a different demo-user owner', async () => {
+    const update = vi.fn();
+    const tx = {
+      stripeWebhookEvent: eventMarker(),
+      $queryRaw: vi.fn(async () => [{ id: DEMO_USER_ID }]),
+      user: {
+        update,
+        findUnique: vi.fn(async () => ({
+          id: DEMO_USER_ID,
+          stripeCustomerId: 'cus_demo',
+          stripeSubscriptionId: 'sub_previous',
+          stripeCheckoutAttemptId: 'attempt_current',
+        })),
+      },
+    };
+    const database = {
+      $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<void>) => callback(tx)),
+    } as unknown as typeof prisma;
+    const current = subscription('active');
+    current.metadata.checkoutAttemptId = 'attempt_current';
+    current.metadata.demoUserId = 'unexpected-user';
+
+    await createBillingRepository(database).processStripeEvent(
+      subscriptionEvent('evt_wrong_checkout_owner'),
+      async () => current,
+    );
+
+    expect(update).not.toHaveBeenCalled();
+  });
+
   it('preserves a new Checkout attempt when an old terminal subscription event arrives', async () => {
     const update = vi.fn();
     const tx = {

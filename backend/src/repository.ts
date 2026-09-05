@@ -384,6 +384,7 @@ export function createRepository(database: typeof prisma, stripePriceId?: string
             const user = await resolveUserFromSubscription(tx, currentSubscription);
             const isCheckoutHandoff = Boolean(
               user?.stripeCheckoutAttemptId &&
+              currentSubscription.metadata.demoUserId === user.id &&
               currentSubscription.metadata.checkoutAttemptId === user.stripeCheckoutAttemptId
             );
             if (user && (
