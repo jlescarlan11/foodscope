@@ -20,7 +20,7 @@ function subscription(status: Stripe.Subscription.Status) {
     items: { data: [{
       current_period_end: 1_800_000_000,
       price: {
-        id: 'price_test', livemode: false, type: 'recurring',
+        id: 'price_test', object: 'price', livemode: false, type: 'recurring',
         recurring: { interval: 'month', interval_count: 1 },
       },
     }] },

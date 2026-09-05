@@ -16,7 +16,7 @@ function subscription(status: Stripe.Subscription.Status) {
     items: { data: [{
       current_period_end: 1_800_000_000,
       price: {
-        id: 'price_test', livemode: false, type: 'recurring',
+        id: 'price_test', object: 'price', livemode: false, type: 'recurring',
         recurring: { interval: 'month', interval_count: 1 },
       },
     }] },
@@ -339,13 +339,50 @@ describe('Stripe webhook repository', () => {
     current.items = { data: [{
       current_period_end: 1_800_000_000,
       price: {
-        id: 'price_other', livemode: false, type: 'recurring',
+        id: 'price_other', object: 'price', livemode: false, type: 'recurring',
         recurring: { interval: 'year', interval_count: 1 },
       },
     }] };
 
     await createBillingRepository(database).processStripeEvent(
       subscriptionEvent('evt_wrong_price'),
+      async () => current as unknown as Stripe.Subscription,
+    );
+
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        subscriptionStatus: 'unknown',
+        subscriptionCurrentPeriodEnd: null,
+      }),
+    }));
+  });
+
+  it('fails closed when the configured monthly item is not a Stripe Price object', async () => {
+    const update = vi.fn();
+    const tx = {
+      stripeWebhookEvent: eventMarker(),
+      $queryRaw: vi.fn(async () => [{ id: DEMO_USER_ID }]),
+      user: { update, findUnique: vi.fn(async () => ({
+        id: DEMO_USER_ID,
+        stripeCustomerId: 'cus_demo',
+        stripeSubscriptionId: 'sub_current',
+        stripeCheckoutAttemptId: null,
+      })) },
+    };
+    const database = {
+      $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<void>) => callback(tx)),
+    } as unknown as typeof prisma;
+    const current = subscription('active') as unknown as Record<string, unknown>;
+    current.items = { data: [{
+      current_period_end: 1_800_000_000,
+      price: {
+        id: 'price_test', object: 'product', livemode: false, type: 'recurring',
+        recurring: { interval: 'month', interval_count: 1 },
+      },
+    }] };
+
+    await createBillingRepository(database).processStripeEvent(
+      subscriptionEvent('evt_non_price_item'),
       async () => current as unknown as Stripe.Subscription,
     );
 
@@ -377,14 +414,14 @@ describe('Stripe webhook repository', () => {
       {
         current_period_end: 1_800_000_000,
         price: {
-          id: 'price_test', livemode: false, type: 'recurring',
+          id: 'price_test', object: 'price', livemode: false, type: 'recurring',
           recurring: { interval: 'month', interval_count: 1 },
         },
       },
       {
         current_period_end: 1_900_000_000,
         price: {
-          id: 'price_other', livemode: false, type: 'recurring',
+          id: 'price_other', object: 'price', livemode: false, type: 'recurring',
           recurring: { interval: 'year', interval_count: 1 },
         },
       },

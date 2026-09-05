@@ -6,6 +6,7 @@ export function isMonthlyTestPrice(value: unknown, expectedPriceId: string) {
   if (!isRecord(value) || !isRecord(value.recurring)) return false;
   return (
     value.id === expectedPriceId &&
+    value.object === 'price' &&
     value.livemode === false &&
     value.type === 'recurring' &&
     value.recurring.interval === 'month' &&

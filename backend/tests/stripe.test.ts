@@ -82,6 +82,7 @@ function harness(sessionUrl: string | null = null, customerId: string | null = n
   }));
   const pricesRetrieve = vi.fn(async () => ({
     id: 'price_test',
+    object: 'price',
     active: true,
     livemode: false,
     type: 'recurring',
@@ -200,6 +201,7 @@ describe('Stripe Checkout creation', () => {
     const setup = harness();
     setup.pricesRetrieve.mockResolvedValueOnce({
       id: 'price_test',
+      object: 'price',
       active: true,
       livemode: false,
       type: 'recurring',
@@ -222,6 +224,7 @@ describe('Stripe Checkout creation', () => {
     const setup = harness();
     setup.pricesRetrieve.mockResolvedValueOnce({
       id: 'price_test',
+      object: 'price',
       active: false,
       livemode: false,
       type: 'recurring',
