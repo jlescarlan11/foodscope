@@ -7,7 +7,7 @@ import type { AppConfig } from './config.js';
 import { canStartCheckout, hasNutritionAccess, NUTRITION_RULES, SUPPORTED_LOCALES } from './constants.js';
 import { ProductProviderRateLimitError } from './open-food-facts.js';
 import { CheckoutUnavailableError } from './errors.js';
-import type { BillingProvider, Nutrition, ProductProvider, Repository } from './types.js';
+import type { BillingProvider, DemoUser, Nutrition, ProductProvider, Repository } from './types.js';
 
 export type AppDependencies = {
   config: AppConfig;
@@ -46,6 +46,17 @@ function publicNutrition(value: Nutrition | undefined) {
     }
   }
   return Object.keys(nutrition).length ? nutrition : undefined;
+}
+
+function publicAccount(user: DemoUser, billingAvailable: boolean) {
+  return {
+    nutritionAccess: hasNutritionAccess(
+      user.subscriptionStatus,
+      user.subscriptionCurrentPeriodEnd,
+    ),
+    billingAvailable,
+    checkoutAvailable: billingAvailable && canStartCheckout(user.subscriptionStatus),
+  };
 }
 
 const asyncRoute =
@@ -133,14 +144,7 @@ export function createApp(deps: AppDependencies) {
         res.status(503).json({ error: 'Demo user is not initialized' });
         return;
       }
-      res.json({
-        nutritionAccess: hasNutritionAccess(
-          user.subscriptionStatus,
-          user.subscriptionCurrentPeriodEnd,
-        ),
-        billingAvailable: deps.billing !== null,
-        checkoutAvailable: deps.billing !== null && canStartCheckout(user.subscriptionStatus),
-      });
+      res.json(publicAccount(user, deps.billing !== null));
     }),
   );
 
@@ -216,7 +220,12 @@ export function createApp(deps: AppDependencies) {
         parsed.data.q,
         parsed.data.lang,
       );
-      res.json({ products });
+      res.json({
+        products,
+        ...(hasNutrition ? {
+          account: currentUser ? publicAccount(currentUser, deps.billing !== null) : null,
+        } : {}),
+      });
     }),
   );
 

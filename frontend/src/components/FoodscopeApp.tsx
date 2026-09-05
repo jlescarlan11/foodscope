@@ -85,9 +85,15 @@ function isUserState(value: unknown): value is UserState {
     && typeof candidate.checkoutAvailable === 'boolean';
 }
 
-function isProductSearchResponse(value: unknown): value is { products: Product[] } {
+function isProductSearchResponse(
+  value: unknown,
+): value is { products: Product[]; account?: UserState | null } {
   if (!value || typeof value !== 'object') return false;
-  const products = (value as Record<string, unknown>).products;
+  const response = value as Record<string, unknown>;
+  if (
+    'account' in response && response.account !== null && !isUserState(response.account)
+  ) return false;
+  const products = response.products;
   if (!Array.isArray(products)) return false;
   return products.every((value) => {
     if (!value || typeof value !== 'object') return false;
@@ -288,6 +294,13 @@ export function FoodscopeApp() {
       if (!isProductSearchResponse(result)) throw new Error('Invalid product response');
       if (sequenceId !== searchSequence.current) return;
       setProducts(result.products);
+      if ('account' in result) {
+        accountController.current?.abort();
+        accountController.current = null;
+        accountSequence.current += 1;
+        setUser(result.account ?? null);
+        setAccountState(result.account ? 'ready' : 'error');
+      }
       if (retrySearchAttempt.current?.requestId === operationId) retrySearchAttempt.current = null;
       void refreshRecent();
     } catch (searchError) {

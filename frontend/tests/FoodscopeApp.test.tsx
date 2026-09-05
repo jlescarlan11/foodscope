@@ -267,6 +267,7 @@ describe('Foodscope locale switching', () => {
       nutrition: { fat: { value: 1, unit: 'g' } } }] },
     { products: [{ id: 'invalid-unit', name: 'Invalid', brand: null, image: null,
       nutritionLocked: false, nutrition: { fat: { value: 1, unit: 'kcal' } } }] },
+    { products: [], account: { nutritionAccess: false } },
   ])('reports a recoverable error for malformed product response %#', async (body) => {
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
@@ -311,6 +312,76 @@ describe('Foodscope locale switching', () => {
     expect(screen.getByRole('heading', { level: 3, name: 'Oats' })).toBeInTheDocument();
     expect(await screen.findByText('44 kcal')).toBeInTheDocument();
     expect(screen.getByText('1.5 g')).toBeInTheDocument();
+  });
+
+  it('synchronizes account state when a search observes entitlement revocation', async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      const body = url.includes('/api/user')
+        ? accountState({ nutritionAccess: true, checkoutAvailable: false })
+        : url.includes('/api/searches/recent')
+          ? { searches: [] }
+          : {
+              products: [{
+                id: 'revoked', name: 'Revoked', brand: null, image: null,
+                nutritionLocked: true,
+              }],
+              account: accountState({ checkoutAvailable: true }),
+            };
+      return { ok: true, json: async () => body } as Response;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<FoodscopeApp />);
+
+    expect(await screen.findByText('Nutrition unlocked')).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText('Search products'), 'spread');
+    await userEvent.click(screen.getByRole('button', { name: /^Search/ }));
+
+    expect(await screen.findByText('Nutrition is locked')).toBeInTheDocument();
+    expect(screen.getByText('Free plan')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Unlock nutrition' })).toBeInTheDocument();
+  });
+
+  it('does not let an older account request overwrite search-time entitlement', async () => {
+    let resolveAccount!: (response: Response) => void;
+    const pendingAccount = new Promise<Response>((resolve) => { resolveAccount = resolve; });
+    let accountSignal: AbortSignal | undefined;
+    vi.stubGlobal('fetch', vi.fn(async (
+      input: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      const url = String(input);
+      if (url.includes('/api/user')) {
+        accountSignal = init?.signal ?? undefined;
+        return pendingAccount;
+      }
+      if (url.includes('/api/searches/recent')) {
+        return { ok: true, json: async () => ({ searches: [] }) } as Response;
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          products: [{
+            id: 'current', name: 'Current', brand: null, image: null,
+            nutritionLocked: true,
+          }],
+          account: accountState(),
+        }),
+      } as Response;
+    }));
+    render(<FoodscopeApp />);
+
+    await userEvent.type(screen.getByLabelText('Search products'), 'current');
+    await userEvent.click(screen.getByRole('button', { name: /^Search/ }));
+
+    expect(await screen.findByText('Free plan')).toBeInTheDocument();
+    expect(accountSignal?.aborted).toBe(true);
+    await act(async () => resolveAccount({
+      ok: true,
+      json: async () => accountState({ nutritionAccess: true, checkoutAvailable: false }),
+    } as Response));
+    expect(screen.getByText('Free plan')).toBeInTheDocument();
+    expect(screen.queryByText('Nutrition unlocked')).not.toBeInTheDocument();
   });
 
   it('rechecks server entitlement after Checkout without trusting the success URL', async () => {

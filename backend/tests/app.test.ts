@@ -389,6 +389,11 @@ describe('Foodscope API', () => {
     expect(response.status).toBe(200);
     expect(response.body.products[0]).toMatchObject({ nutritionLocked: true });
     expect(response.body.products[0]).not.toHaveProperty('nutrition');
+    expect(response.body.account).toEqual({
+      nutritionAccess: false,
+      billingAvailable: true,
+      checkoutAvailable: true,
+    });
   });
 
   it('reports missing nutrition as unavailable instead of claiming it is locked', async () => {
@@ -408,6 +413,7 @@ describe('Foodscope API', () => {
       nutritionLocked: false,
     });
     expect(response.body.products[0]).not.toHaveProperty('nutrition');
+    expect(response.body).not.toHaveProperty('account');
     expect(setup.repository.getDemoUser).toHaveBeenCalledOnce();
   });
 
@@ -430,6 +436,11 @@ describe('Foodscope API', () => {
     });
     expect(response.body.products[0].nutrition).toEqual({
       fat: { value: 30.9, unit: 'g' },
+    });
+    expect(response.body.account).toEqual({
+      nutritionAccess: true,
+      billingAvailable: true,
+      checkoutAvailable: false,
     });
     expect(response.body.products[0]).not.toHaveProperty('providerInternalField');
     expect(response.headers['cache-control']).toBe('no-store');
@@ -531,6 +542,11 @@ describe('Foodscope API', () => {
     expect(response.status).toBe(200);
     expect(response.body.products[0]).toMatchObject({ nutritionLocked: true });
     expect(response.body.products[0]).not.toHaveProperty('nutrition');
+    expect(response.body.account).toEqual({
+      nutritionAccess: false,
+      billingAvailable: true,
+      checkoutAvailable: true,
+    });
     expect(setup.repository.getDemoUser).toHaveBeenCalledTimes(2);
   });
 
