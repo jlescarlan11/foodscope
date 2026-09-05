@@ -376,6 +376,38 @@ describe('Foodscope locale switching', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('We could not open Checkout');
   });
 
+  it('refreshes authoritative account state when Checkout detects concurrent activation', async () => {
+    let accountReads = 0;
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/api/user')) {
+        accountReads += 1;
+        return {
+          ok: true,
+          json: async () => accountState({
+            nutritionAccess: accountReads > 1,
+            subscriptionStatus: accountReads > 1 ? 'active' : 'inactive',
+          }),
+        } as Response;
+      }
+      if (url.includes('/api/searches/recent')) {
+        return { ok: true, json: async () => ({ searches: [] }) } as Response;
+      }
+      expect(init?.method).toBe('POST');
+      return { ok: false, status: 409 } as Response;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<FoodscopeApp />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Unlock nutrition' }));
+
+    expect(await screen.findByText('Nutrition unlocked')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(accountReads).toBe(2);
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/api/billing/checkout-session')))
+      .toHaveLength(1);
+  });
+
   it('replaces a failed product image with the unavailable fallback', async () => {
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       const url = String(input);

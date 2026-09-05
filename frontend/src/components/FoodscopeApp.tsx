@@ -15,6 +15,12 @@ export const REQUEST_TIMEOUT_MS = {
   checkout: 20_000,
 } as const;
 
+class ApiResponseError extends Error {
+  constructor(readonly status: number) {
+    super('Request failed');
+  }
+}
+
 async function api<T>(
   path: string,
   init?: RequestInit,
@@ -35,7 +41,7 @@ async function api<T>(
       cache: 'no-store',
       signal: controller.signal,
     });
-    if (!response.ok) throw new Error('Request failed');
+    if (!response.ok) throw new ApiResponseError(response.status);
     return response.json() as Promise<T>;
   } finally {
     window.clearTimeout(timeout);
@@ -234,7 +240,18 @@ export function FoodscopeApp() {
         REQUEST_TIMEOUT_MS.checkout,
       );
       window.location.assign(url);
-    } catch { setCheckoutError(true); setSubscribing(false); }
+    } catch (error) {
+      if (error instanceof ApiResponseError && error.status === 409) {
+        accountController.current?.abort();
+        const controller = new AbortController();
+        accountController.current = controller;
+        setAccountState('loading');
+        await loadAccount(controller);
+      } else {
+        setCheckoutError(true);
+      }
+      setSubscribing(false);
+    }
   }
 
   function retryAccount() {
