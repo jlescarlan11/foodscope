@@ -136,6 +136,33 @@ describe('Foodscope locale switching', () => {
     expect(screen.getByLabelText('Search products')).toBeEnabled();
   });
 
+  it('reports a recent-search failure and recovers through an explicit retry', async () => {
+    let recentReads = 0;
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('/api/user')) {
+        return { ok: true, json: async () => accountState() } as Response;
+      }
+      if (url.includes('/api/searches/recent')) {
+        recentReads += 1;
+        if (recentReads === 1) return { ok: false, status: 503 } as Response;
+        return {
+          ok: true,
+          json: async () => ({ searches: [{ query: 'recovered oats', locale: 'en' }] }),
+        } as Response;
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+
+    render(<FoodscopeApp />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Recent searches are unavailable.');
+    await userEvent.click(screen.getByRole('button', { name: 'Retry recent searches' }));
+    expect(await screen.findByRole('button', { name: 'recovered oats EN' })).toBeInTheDocument();
+    expect(screen.queryByText('Recent searches are unavailable.')).not.toBeInTheDocument();
+    expect(recentReads).toBe(2);
+  });
+
   it('distinguishes identical recent queries by their search locale', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
       const body = String(input).includes('/api/user')

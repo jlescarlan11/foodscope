@@ -216,6 +216,7 @@ export function FoodscopeApp() {
   const [query, setQuery] = useState('');
   const [products, setProducts] = useState<Product[] | null>(null);
   const [recent, setRecent] = useState<RecentSearch[]>([]);
+  const [recentError, setRecentError] = useState(false);
   const [user, setUser] = useState<UserState | null>(null);
   const [accountState, setAccountState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [loading, setLoading] = useState(false);
@@ -245,8 +246,15 @@ export function FoodscopeApp() {
       { signal: controller.signal },
     ).then((response) => {
       if (!isRecentSearchResponse(response)) throw new Error('Invalid recent searches response');
-      if (requestId === recentSequence.current) setRecent(response.searches);
-    }).catch(() => undefined).finally(() => {
+      if (requestId === recentSequence.current) {
+        setRecent(response.searches);
+        setRecentError(false);
+      }
+    }).catch(() => {
+      if (requestId === recentSequence.current && !controller.signal.aborted) {
+        setRecentError(true);
+      }
+    }).finally(() => {
       if (recentController.current === controller) recentController.current = null;
     });
   };
@@ -443,6 +451,7 @@ export function FoodscopeApp() {
             <button disabled={loading || !query.trim() || !isUsableSearchQuery(query)}>{loading ? messages.searching : messages.search}<span aria-hidden="true">→</span></button>
           </form>
           {recent.length > 0 && <div className="recent"><span>{messages.recent}</span><div>{recent.map((item, index) => <button key={`${item.locale}:${item.query}:${index}`} onClick={() => { const recentLocale = item.locale as Locale; setLocale(recentLocale); setQuery(item.query); void runSearch(item.query, recentLocale); }}>{item.query}<span className="recent-locale">{localeNames[item.locale as Locale]}</span></button>)}</div></div>}
+          {recentError && <div className="recent-recovery"><p role="alert">{messages.recentUnavailable}</p><button onClick={() => void refreshRecent()}>{messages.retryRecent}<span aria-hidden="true">↻</span></button></div>}
           {checkoutCancelled && <p className="notice" role="status">{messages.checkoutCancelled}</p>}
           {searchError && <p className="alert" role="alert">{messages.error}</p>}
         </div>

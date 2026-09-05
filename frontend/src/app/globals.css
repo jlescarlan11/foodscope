@@ -31,6 +31,9 @@ h1 em { color: #6f9430; font-weight: 400; }
 .recent div { min-width: 0; display: flex; flex-wrap: wrap; gap: 7px; }
 .recent button { max-width: 100%; display: flex; align-items: center; gap: 7px; overflow-wrap: anywhere; text-align: left; border: 1px solid var(--line); background: transparent; color: var(--ink); padding: 6px 10px; border-radius: 999px; }
 .recent-locale { color: var(--muted); font-size: .65rem; font-weight: 700; letter-spacing: .08em; }
+.recent-recovery { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+.recent-recovery p { margin: 0; color: #8e342b; }
+.recent-recovery button { border: 0; border-bottom: 1px solid currentColor; background: transparent; color: var(--ink); padding: 2px; }
 .alert { width: fit-content; margin-top: 18px; padding: 10px 13px; color: #8e342b; background: #fff0ec; border-radius: 8px; }
 .notice { width: fit-content; margin-top: 18px; padding: 10px 13px; color: var(--ink); background: #edf5dc; border-radius: 8px; }
 .plan-card { align-self: end; border-radius: 20px; padding: 27px; color: #ebf2ed; background: var(--ink); box-shadow: 0 22px 50px rgba(24,53,44,.13); }
