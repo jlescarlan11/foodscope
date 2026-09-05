@@ -28,6 +28,7 @@ function safeCheckoutUrl(value: string | null) {
 
 export class StripeBillingProvider implements BillingProvider {
   private readonly stripe: Stripe;
+  private readonly checkoutRequests = new Map<string, Promise<{ url: string }>>();
 
   constructor(
     private readonly config: AppConfig,
@@ -44,7 +45,17 @@ export class StripeBillingProvider implements BillingProvider {
     });
   }
 
-  async createCheckout(user: DemoUser) {
+  createCheckout(user: DemoUser) {
+    const pending = this.checkoutRequests.get(user.id);
+    if (pending) return pending;
+    const request = this.createCheckoutOnce(user).finally(() => {
+      if (this.checkoutRequests.get(user.id) === request) this.checkoutRequests.delete(user.id);
+    });
+    this.checkoutRequests.set(user.id, request);
+    return request;
+  }
+
+  private async createCheckoutOnce(user: DemoUser) {
     if (!this.config.stripePriceId) throw new Error('Stripe price is not configured');
 
     const attempt = await this.repository.getOrCreateCheckoutAttempt(user.id);

@@ -121,6 +121,41 @@ describe('Stripe Checkout creation', () => {
     });
   });
 
+  it('coalesces concurrent Checkout requests before calling Stripe', async () => {
+    const setup = harness();
+
+    await expect(Promise.all([
+      setup.provider.createCheckout(user),
+      setup.provider.createCheckout(user),
+    ])).resolves.toEqual([
+      { url: 'https://checkout.stripe.test/session' },
+      { url: 'https://checkout.stripe.test/session' },
+    ]);
+
+    expect(setup.repository.getOrCreateCheckoutAttempt).toHaveBeenCalledOnce();
+    expect(setup.customersCreate).toHaveBeenCalledOnce();
+    expect(setup.sessionsCreate).toHaveBeenCalledOnce();
+    expect(setup.repository.completeCheckoutAttempt).toHaveBeenCalledOnce();
+  });
+
+  it('allows a new Checkout attempt after a coalesced request fails', async () => {
+    const setup = harness();
+    setup.customersCreate.mockRejectedValueOnce(new Error('temporary provider failure'));
+
+    const failed = await Promise.allSettled([
+      setup.provider.createCheckout(user),
+      setup.provider.createCheckout(user),
+    ]);
+    expect(failed.map(({ status }) => status)).toEqual(['rejected', 'rejected']);
+
+    await expect(setup.provider.createCheckout(user)).resolves.toEqual({
+      url: 'https://checkout.stripe.test/session',
+    });
+    expect(setup.repository.getOrCreateCheckoutAttempt).toHaveBeenCalledTimes(2);
+    expect(setup.customersCreate).toHaveBeenCalledTimes(2);
+    expect(setup.sessionsCreate).toHaveBeenCalledOnce();
+  });
+
   it('returns a stored open Session without creating any Stripe resource', async () => {
     const setup = harness('https://checkout.stripe.test/existing');
 
