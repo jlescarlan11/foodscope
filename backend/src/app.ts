@@ -5,6 +5,7 @@ import type Stripe from 'stripe';
 import { z } from 'zod';
 import type { AppConfig } from './config.js';
 import { isActiveSubscription, SUPPORTED_LOCALES } from './constants.js';
+import { ProductProviderRateLimitError } from './open-food-facts.js';
 import type { BillingProvider, ProductProvider, Repository } from './types.js';
 
 export type AppDependencies = {
@@ -97,9 +98,18 @@ export function createApp(deps: AppDependencies) {
       }
 
       let results;
+      const controller = new AbortController();
+      req.once('aborted', () => controller.abort());
       try {
-        results = await deps.products.search(parsed.data.q, parsed.data.lang);
-      } catch {
+        results = await deps.products.search(parsed.data.q, parsed.data.lang, controller.signal);
+      } catch (error) {
+        if (error instanceof ProductProviderRateLimitError) {
+          if (error.retryAfterSeconds !== undefined) {
+            res.set('Retry-After', String(error.retryAfterSeconds));
+          }
+          res.status(503).json({ error: 'Product search is temporarily unavailable' });
+          return;
+        }
         res.status(502).json({ error: 'Product search is temporarily unavailable' });
         return;
       }

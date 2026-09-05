@@ -1,5 +1,6 @@
 import type { Locale } from './constants.js';
 import type { Nutrition, Product, ProductProvider } from './types.js';
+import { setTimeout as delay } from 'node:timers/promises';
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -22,6 +23,21 @@ const nutritionFields: Array<[keyof Nutrition, string]> = [
   ['salt', 'salt_100g'],
   ['sodium', 'sodium_100g'],
 ];
+
+export class ProductProviderRateLimitError extends Error {
+  constructor(readonly retryAfterSeconds?: number) {
+    super('Open Food Facts rate limit reached');
+  }
+}
+
+function retryAfterSeconds(response: Response) {
+  const value = response.headers.get('retry-after');
+  if (!value) return undefined;
+  if (/^\d+$/.test(value)) return Number(value);
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return undefined;
+  return Math.max(0, Math.ceil((timestamp - Date.now()) / 1000));
+}
 
 export function normalizeProduct(raw: unknown, locale: Locale): Omit<Product, 'nutritionLocked'> | null {
   if (!isRecord(raw)) return null;
@@ -52,7 +68,7 @@ export function normalizeProduct(raw: unknown, locale: Locale): Omit<Product, 'n
 export class OpenFoodFactsProvider implements ProductProvider {
   constructor(private readonly userAgent: string, private readonly fetcher: typeof fetch = fetch) {}
 
-  async search(query: string, locale: Locale) {
+  async search(query: string, locale: Locale, signal?: AbortSignal) {
     const params = new URLSearchParams({
       search_terms: query,
       search_simple: '1',
@@ -70,12 +86,22 @@ export class OpenFoodFactsProvider implements ProductProvider {
         Accept: 'application/json',
         'Accept-Language': locale,
       },
-      signal: AbortSignal.timeout(10_000),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000),
     });
     let response = await request();
-    for (let attempt = 0; attempt < 2 && [429, 502, 503, 504].includes(response.status); attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 250 * 2 ** attempt));
+    if (response.status === 429 || response.status === 503) {
+      throw new ProductProviderRateLimitError(retryAfterSeconds(response));
+    }
+    if (response.status === 502 || response.status === 504) {
+      const retryAfter = retryAfterSeconds(response);
+      if (retryAfter !== undefined && retryAfter > 2) {
+        throw new Error(`Open Food Facts returned ${response.status}`);
+      }
+      await delay(retryAfter === undefined ? 250 : retryAfter * 1000, undefined, signal ? { signal } : undefined);
       response = await request();
+    }
+    if (response.status === 429 || response.status === 503) {
+      throw new ProductProviderRateLimitError(retryAfterSeconds(response));
     }
     if (!response.ok) throw new Error(`Open Food Facts returned ${response.status}`);
     const payload: unknown = await response.json();

@@ -53,7 +53,7 @@ export interface Repository {
 }
 
 export interface ProductProvider {
-  search(query: string, locale: Locale): Promise<Array<Omit<Product, 'nutritionLocked'>>>;
+  search(query: string, locale: Locale, signal?: AbortSignal): Promise<Array<Omit<Product, 'nutritionLocked'>>>;
 }
 
 export interface BillingProvider {

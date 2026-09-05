@@ -3,6 +3,7 @@ import request from 'supertest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp, type AppDependencies } from '../src/app.js';
 import { DEMO_USER_ID, type Locale } from '../src/constants.js';
+import { ProductProviderRateLimitError } from '../src/open-food-facts.js';
 import type { DemoUser, RecentSearch, Repository } from '../src/types.js';
 
 const baseUser: DemoUser = {
@@ -83,6 +84,17 @@ describe('Foodscope API', () => {
     vi.mocked(setup.dependencies.products.search).mockRejectedValueOnce(new Error('secret upstream detail'));
     const response = await request(setup.app).get('/api/products/search?q=milk&lang=en');
     expect(response.status).toBe(502);
+    expect(response.body).toEqual({ error: 'Product search is temporarily unavailable' });
+  });
+
+  it('forwards safe upstream backpressure without retrying in the API layer', async () => {
+    const setup = harness();
+    vi.mocked(setup.dependencies.products.search).mockRejectedValueOnce(new ProductProviderRateLimitError(17));
+
+    const response = await request(setup.app).get('/api/products/search?q=milk&lang=en');
+
+    expect(response.status).toBe(503);
+    expect(response.headers['retry-after']).toBe('17');
     expect(response.body).toEqual({ error: 'Product search is temporarily unavailable' });
   });
 
