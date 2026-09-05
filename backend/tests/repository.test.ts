@@ -791,6 +791,37 @@ describe('Stripe webhook repository', () => {
     }));
   });
 
+  it('updates a stored Subscription when current metadata is malformed', async () => {
+    const update = vi.fn();
+    const current = subscription('canceled') as unknown as Record<string, unknown>;
+    current.metadata = null;
+    const tx = {
+      stripeWebhookEvent: eventMarker(),
+      $queryRaw: vi.fn(async () => [{ id: DEMO_USER_ID }]),
+      user: {
+        update,
+        findUnique: vi.fn(async () => ({
+          id: DEMO_USER_ID,
+          stripeCustomerId: 'cus_demo',
+          stripeSubscriptionId: 'sub_current',
+          stripeCheckoutAttemptId: null,
+        })),
+      },
+    };
+    const database = {
+      $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<void>) => callback(tx)),
+    } as unknown as typeof prisma;
+
+    await createBillingRepository(database).processStripeEvent(
+      subscriptionEvent('evt_malformed_current_metadata'),
+      async () => current as unknown as Stripe.Subscription,
+    );
+
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ subscriptionStatus: 'canceled' }),
+    }));
+  });
+
   it('retrieves a stored Subscription when its delivered Customer is malformed', async () => {
     const update = vi.fn();
     const retrieveSubscription = vi.fn(async () => subscription('canceled'));

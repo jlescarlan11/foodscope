@@ -79,8 +79,7 @@ function isSubscriptionLocator(value: unknown): value is Stripe.Subscription {
 
 function isSubscriptionReference(value: unknown): value is Stripe.Subscription {
   return isSubscriptionLocator(value) &&
-    activeCustomerId(value.customer) !== null &&
-    isRecord(value.metadata);
+    activeCustomerId(value.customer) !== null;
 }
 
 async function resolveUserFromSubscription(
@@ -407,10 +406,13 @@ export function createRepository(database: typeof prisma, stripePriceId?: string
               throw new Error('Current Stripe subscription is required');
             }
             const user = await resolveUserFromSubscription(tx, currentSubscription);
+            const currentMetadata = isRecord(currentSubscription.metadata)
+              ? currentSubscription.metadata
+              : null;
             const isCheckoutHandoff = Boolean(
               user?.stripeCheckoutAttemptId &&
-              currentSubscription.metadata.demoUserId === user.id &&
-              currentSubscription.metadata.checkoutAttemptId === user.stripeCheckoutAttemptId
+              currentMetadata?.demoUserId === user.id &&
+              currentMetadata?.checkoutAttemptId === user.stripeCheckoutAttemptId
             );
             if (user && (
               user.stripeSubscriptionId === currentSubscription.id ||
