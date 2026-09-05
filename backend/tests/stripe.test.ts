@@ -348,6 +348,7 @@ describe('Stripe Checkout creation', () => {
   });
 
   it.each([
+    { id: 'cus_different', livemode: false, metadata: { demoUserId: user.id } },
     { object: 'invoice', livemode: false, metadata: { demoUserId: user.id } },
     { livemode: false, metadata: {} },
     { livemode: false, metadata: { demoUserId: 'unexpected-user' } },

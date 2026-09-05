@@ -161,7 +161,9 @@ export class StripeBillingProvider implements BillingProvider {
     let customerId = attempt.customerId;
     if (customerId) {
       const customer = await this.stripe.customers.retrieve(customerId);
-      if (customer.object !== 'customer') throw new CheckoutUnavailableError();
+      if (customer.object !== 'customer' || customer.id !== customerId) {
+        throw new CheckoutUnavailableError();
+      }
       if ('deleted' in customer && customer.deleted === true) {
         if (!canRecoverDeletedCustomer) throw new CheckoutUnavailableError();
         const replacement = await this.stripe.customers.create({
