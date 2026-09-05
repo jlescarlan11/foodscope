@@ -133,8 +133,8 @@ describe('Foodscope locale switching', () => {
       if (url.includes('/api/user')) return { ok: true, json: async () => accountState() } as Response;
       if (url.includes('/api/searches/recent')) {
         return { ok: true, json: async () => ({ searches: [
-          { id: 1, query: 'first', locale: 'en' },
-          { id: 2, query: 'second', locale: 'de' },
+          { query: 'first', locale: 'en' },
+          { query: 'second', locale: 'de' },
         ] }) } as Response;
       }
       const searchBody = init?.body ? JSON.parse(String(init.body)) as { q?: string } : {};

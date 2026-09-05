@@ -561,6 +561,7 @@ describe('Foodscope API', () => {
       'nl',
     );
     expect(recent.body.searches[0]).toMatchObject({ query: 'oat milk', locale: 'nl' });
+    expect(recent.body.searches[0]).not.toHaveProperty('id');
     expect(recent.body.searches[0]).not.toHaveProperty('createdAt');
   });
 

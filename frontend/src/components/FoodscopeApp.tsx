@@ -127,8 +127,7 @@ function isRecentSearchResponse(value: unknown): value is { searches: RecentSear
   return Array.isArray(searches) && searches.length <= 8 && searches.every((value) => {
     if (!value || typeof value !== 'object') return false;
     const search = value as Record<string, unknown>;
-    return typeof search.id === 'number' && Number.isSafeInteger(search.id) && search.id > 0 &&
-      typeof search.query === 'string' && Boolean(search.query.trim()) && search.query.length <= 120 &&
+    return typeof search.query === 'string' && Boolean(search.query.trim()) && search.query.length <= 120 &&
       typeof search.locale === 'string' && locales.includes(search.locale as Locale);
   });
 }
@@ -385,7 +384,7 @@ export function FoodscopeApp() {
             <input id="product-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={messages.searchPlaceholder} maxLength={120} />
             <button disabled={loading || !query.trim()}>{loading ? messages.searching : messages.search}<span aria-hidden="true">→</span></button>
           </form>
-          {recent.length > 0 && <div className="recent"><span>{messages.recent}</span><div>{recent.map((item) => <button key={item.id} onClick={() => { const recentLocale = item.locale as Locale; setLocale(recentLocale); setQuery(item.query); void runSearch(item.query, recentLocale); }}>{item.query}<span className="recent-locale">{localeNames[item.locale as Locale]}</span></button>)}</div></div>}
+          {recent.length > 0 && <div className="recent"><span>{messages.recent}</span><div>{recent.map((item, index) => <button key={`${item.locale}:${item.query}:${index}`} onClick={() => { const recentLocale = item.locale as Locale; setLocale(recentLocale); setQuery(item.query); void runSearch(item.query, recentLocale); }}>{item.query}<span className="recent-locale">{localeNames[item.locale as Locale]}</span></button>)}</div></div>}
           {checkoutCancelled && <p className="notice" role="status">{messages.checkoutCancelled}</p>}
           {searchError && <p className="alert" role="alert">{messages.error}</p>}
         </div>
