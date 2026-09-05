@@ -42,4 +42,18 @@ describe('accessible text colors', () => {
     expect(reducedMotion).toContain('scroll-behavior: auto');
     expect(reducedMotion).toContain('animation: none');
   });
+
+  it.each([
+    '.recent button',
+    '.brand',
+    '.product-card h3',
+  ])('wraps unbroken external or user text in %s', (selector) => {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    expect(css).toMatch(new RegExp(`${escaped}\\s*\\{[^}]*overflow-wrap:\\s*anywhere`));
+  });
+
+  it('allows the recent-search flex group and buttons to shrink to the viewport', () => {
+    expect(css).toMatch(/\.recent div\s*\{[^}]*min-width:\s*0/);
+    expect(css).toMatch(/\.recent button\s*\{[^}]*max-width:\s*100%/);
+  });
 });
