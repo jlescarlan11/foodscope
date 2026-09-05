@@ -83,6 +83,18 @@ describe('Stripe Checkout creation', () => {
     }, {} as Repository)).toThrow('only supports Stripe test mode');
   });
 
+  it('refuses malformed complete Stripe configuration at the provider boundary', () => {
+    expect(() => createBillingProvider({
+      port: 4000,
+      host: '127.0.0.1',
+      frontendUrl: 'http://localhost:3000',
+      openFoodFactsUserAgent: 'test',
+      stripeSecretKey: 'sk_test_fake',
+      stripeWebhookSecret: 'whsec_fake extra',
+      stripePriceId: 'price_fake',
+    }, {} as Repository)).toThrow('invalid webhook secret or Price ID');
+  });
+
   it('accepts a least-privilege restricted test key', () => {
     expect(createBillingProvider({
       port: 4000,

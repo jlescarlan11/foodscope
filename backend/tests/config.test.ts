@@ -107,8 +107,11 @@ describe('runtime configuration', () => {
       { STRIPE_PRICE_ID: 'price_fake' },
       { ...validStripe, STRIPE_SECRET_KEY: 'sk_live_fake' },
       { ...validStripe, STRIPE_SECRET_KEY: 'sk_test_' },
+      { ...validStripe, STRIPE_SECRET_KEY: 'sk_test_fake extra' },
       { ...validStripe, STRIPE_WEBHOOK_SECRET: 'secret_fake' },
+      { ...validStripe, STRIPE_WEBHOOK_SECRET: 'whsec_fake\nextra' },
       { ...validStripe, STRIPE_PRICE_ID: 'product_fake' },
+      { ...validStripe, STRIPE_PRICE_ID: 'price_fake extra' },
     ];
 
     for (const stripeEnvironment of invalidEnvironments) {

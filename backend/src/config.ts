@@ -1,5 +1,10 @@
 import 'dotenv/config';
 import { isIP } from 'node:net';
+import {
+  isStripePriceId,
+  isStripeTestSecretKey,
+  isStripeWebhookSecret,
+} from './stripe-config.js';
 
 export type AppConfig = {
   port: number;
@@ -81,13 +86,13 @@ function stripeConfig(environment: NodeJS.ProcessEnv) {
   if (!stripeSecretKey || !stripeWebhookSecret || !stripePriceId) {
     throw new Error('Stripe configuration requires a test key, webhook secret, and Price ID');
   }
-  if (!/^(?:sk|rk)_test_.+/.test(stripeSecretKey)) {
+  if (!isStripeTestSecretKey(stripeSecretKey)) {
     throw new Error('STRIPE_SECRET_KEY must be a Stripe test-mode secret or restricted key');
   }
-  if (!/^whsec_.+/.test(stripeWebhookSecret)) {
+  if (!isStripeWebhookSecret(stripeWebhookSecret)) {
     throw new Error('STRIPE_WEBHOOK_SECRET must be a Stripe endpoint signing secret');
   }
-  if (!/^price_.+/.test(stripePriceId)) {
+  if (!isStripePriceId(stripePriceId)) {
     throw new Error('STRIPE_PRICE_ID must be a Stripe Price ID');
   }
   return { stripeSecretKey, stripeWebhookSecret, stripePriceId };

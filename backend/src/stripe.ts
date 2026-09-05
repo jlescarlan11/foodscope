@@ -2,6 +2,11 @@ import { createHash } from 'node:crypto';
 import Stripe from 'stripe';
 import type { AppConfig } from './config.js';
 import { CheckoutUnavailableError } from './errors.js';
+import {
+  isStripePriceId,
+  isStripeTestSecretKey,
+  isStripeWebhookSecret,
+} from './stripe-config.js';
 import type { BillingProvider, DemoUser, Repository } from './types.js';
 
 const STRIPE_REQUEST_TIMEOUT_MS = 5_000;
@@ -36,7 +41,7 @@ export class StripeBillingProvider implements BillingProvider {
     stripeClient?: Stripe,
   ) {
     if (!config.stripeSecretKey) throw new Error('Stripe is not configured');
-    if (!/^(?:sk|rk)_test_/.test(config.stripeSecretKey)) {
+    if (!isStripeTestSecretKey(config.stripeSecretKey)) {
       throw new Error('Foodscope only supports Stripe test mode');
     }
     this.stripe = stripeClient ?? new Stripe(config.stripeSecretKey, {
@@ -120,6 +125,12 @@ export function createBillingProvider(config: AppConfig, repository: Repository)
   if (stripeValues.every((value) => !value)) return null;
   if (stripeValues.some((value) => !value)) {
     throw new Error('Stripe configuration requires a test key, webhook secret, and Price ID');
+  }
+  if (!isStripeTestSecretKey(config.stripeSecretKey!)) {
+    throw new Error('Foodscope only supports Stripe test mode');
+  }
+  if (!isStripeWebhookSecret(config.stripeWebhookSecret!) || !isStripePriceId(config.stripePriceId!)) {
+    throw new Error('Stripe configuration contains an invalid webhook secret or Price ID');
   }
   return new StripeBillingProvider(config, repository);
 }
