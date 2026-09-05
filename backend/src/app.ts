@@ -134,8 +134,6 @@ export function createApp(deps: AppDependencies) {
         return;
       }
       res.json({
-        subscriptionStatus: user.subscriptionStatus,
-        subscriptionCurrentPeriodEnd: user.subscriptionCurrentPeriodEnd,
         nutritionAccess: hasNutritionAccess(
           user.subscriptionStatus,
           user.subscriptionCurrentPeriodEnd,

@@ -462,6 +462,8 @@ describe('Foodscope API', () => {
     expect(response.body.billingAvailable).toBe(true);
     expect(response.body.checkoutAvailable).toBe(false);
     expect(response.body).not.toHaveProperty('email');
+    expect(response.body).not.toHaveProperty('subscriptionStatus');
+    expect(response.body).not.toHaveProperty('subscriptionCurrentPeriodEnd');
     expect(response.headers['cache-control']).toBe('no-store');
   });
 
