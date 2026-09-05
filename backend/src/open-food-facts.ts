@@ -115,9 +115,7 @@ export function normalizeProduct(raw: unknown, locale: Locale): Omit<Product, 'n
   const genericName = textValue(raw.product_name);
   const brands = textValue(raw.brands);
   const image = imageValue(raw.image_front_url) ?? imageValue(raw.image_url);
-  const nutriments = raw.product_quantity_unit === 'g' && isRecord(raw.nutriments)
-    ? raw.nutriments
-    : {};
+  const nutriments = isRecord(raw.nutriments) ? raw.nutriments : {};
   const nutrition: Nutrition = {};
 
   for (const [localKey, upstreamKey, unit] of nutritionFields) {
@@ -171,7 +169,6 @@ export class OpenFoodFactsProvider implements ProductProvider {
         'brands',
         'image_front_url',
         'image_url',
-        'product_quantity_unit',
         'nutriments',
       ].join(','),
     });

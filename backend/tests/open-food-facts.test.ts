@@ -40,17 +40,34 @@ describe('Open Food Facts normalization', () => {
   });
 
   it.each(['ml', undefined])(
-    'treats %s product-basis nutrition as unavailable instead of per 100 g',
+    'uses explicit _100g nutrition independently of the %s package quantity unit',
     (productQuantityUnit) => {
       expect(normalizeProduct({
-        code: 'liquid-or-unknown',
+        code: 'packaging-unit-is-unrelated',
         product_quantity_unit: productQuantityUnit,
         nutriments: { 'energy-kcal_100g': 44, 'fat_100g': 1.5 },
       }, 'en')).toEqual({
-        id: 'liquid-or-unknown', name: null, brand: null, image: null,
+        id: 'packaging-unit-is-unrelated', name: null, brand: null, image: null,
+        nutrition: {
+          energyKcal: { value: 44, unit: 'kcal' },
+          fat: { value: 1.5, unit: 'g' },
+        },
       });
     },
   );
+
+  it('never substitutes serving, prepared-product, or per-100-ml nutrition', () => {
+    expect(normalizeProduct({
+      code: 'wrong-nutrition-bases',
+      nutriments: {
+        'fat_serving': 1,
+        'fat_prepared_100g': 2,
+        'fat_100ml': 3,
+      },
+    }, 'en')).toEqual({
+      id: 'wrong-nutrition-bases', name: null, brand: null, image: null,
+    });
+  });
 
   it('falls back to the generic name and tolerates missing fields', () => {
     expect(normalizeProduct({ code: '456', product_name: 'Generic only' }, 'fr')).toEqual({
@@ -104,7 +121,6 @@ describe('Open Food Facts normalization', () => {
       'brands',
       'image_front_url',
       'image_url',
-      'product_quantity_unit',
       'nutriments',
     ]);
     expect(fetcher.mock.calls[0]?.[1]?.headers).toMatchObject({ 'Accept-Language': 'fr' });
