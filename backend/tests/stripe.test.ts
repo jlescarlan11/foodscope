@@ -58,10 +58,19 @@ function harness(sessionUrl: string | null = null, customerId: string | null = n
     livemode: false,
     metadata: { demoUserId: user.id },
   }));
-  const sessionsCreate = vi.fn(async () => ({
+  const session = {
     id: 'cs_test',
     url: 'https://checkout.stripe.test/session',
     expires_at: Math.floor(attempt.expiresAt.getTime() / 1000),
+    livemode: false,
+    mode: 'subscription',
+    status: 'open',
+    customer: customerId ?? 'cus_test',
+    metadata: { demoUserId: user.id },
+  };
+  const sessionsCreate = vi.fn(async (params?: { customer?: string }) => ({
+    ...session,
+    customer: params?.customer ?? session.customer,
   }));
   const subscriptionsList = vi.fn(async (): Promise<{
     data: Array<{ status: Stripe.Subscription.Status }>;
@@ -97,6 +106,7 @@ function harness(sessionUrl: string | null = null, customerId: string | null = n
     subscriptionsList,
     pricesRetrieve,
     attempt,
+    session,
   };
 }
 
@@ -401,6 +411,7 @@ describe('Stripe Checkout creation', () => {
         param: 'expires_at',
       }))
       .mockResolvedValueOnce({
+        ...setup.session,
         id: 'cs_recovered',
         url: 'https://checkout.stripe.test/recovered',
         expires_at: Math.floor(replacement.expiresAt.getTime() / 1000),
@@ -505,13 +516,34 @@ describe('Stripe Checkout creation', () => {
   it('does not persist or return an unsafe URL from Stripe', async () => {
     const setup = harness();
     setup.sessionsCreate.mockResolvedValueOnce({
+      ...setup.session,
       id: 'cs_unsafe',
       url: 'http://checkout.stripe.test/session',
-      expires_at: Math.floor(setup.attempt.expiresAt.getTime() / 1000),
     });
 
     await expect(setup.provider.createCheckout(user)).rejects.toThrow('safe Checkout URL');
     expect(setup.repository.completeCheckoutAttempt).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { id: '' },
+    { id: 'c'.repeat(256) },
+    { livemode: true },
+    { mode: 'payment' },
+    { status: 'expired' },
+    { customer: 'cus_other' },
+    { metadata: { demoUserId: 'unexpected-user' } },
+    { expires_at: Number.NaN },
+    { expires_at: Math.floor(new Date('2030-01-01T00:30:00Z').getTime() / 1000) },
+  ])('does not persist a contract-invalid Checkout Session %#', async (override) => {
+    const setup = harness();
+    setup.sessionsCreate.mockResolvedValueOnce({ ...setup.session, ...override });
+
+    await expect(setup.provider.createCheckout(user)).rejects.toThrow(
+      'valid Checkout Session',
+    );
+    expect(setup.repository.completeCheckoutAttempt).not.toHaveBeenCalled();
+    expect(setup.repository.releaseCheckoutAttempt).not.toHaveBeenCalled();
   });
 
   it.each(['active', 'unpaid'] as const)(

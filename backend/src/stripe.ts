@@ -4,6 +4,7 @@ import type { AppConfig } from './config.js';
 import { CheckoutUnavailableError } from './errors.js';
 import {
   isStripePriceId,
+  isStripeOpaqueId,
   isStripeTestSecretKey,
   isStripeWebhookSecret,
 } from './stripe-config.js';
@@ -36,6 +37,15 @@ function safeCheckoutUrl(value: string | null) {
   } catch {
     return null;
   }
+}
+
+function expandableId(value: unknown) {
+  if (isStripeOpaqueId(value)) return value;
+  if (
+    typeof value === 'object' && value !== null && 'id' in value &&
+    isStripeOpaqueId(value.id)
+  ) return value.id;
+  return null;
 }
 
 function isStaleCheckoutExpiryError(error: unknown, expiresAt: Date) {
@@ -188,6 +198,18 @@ export class StripeBillingProvider implements BillingProvider {
     }
     const sessionUrl = safeCheckoutUrl(session.url);
     if (!sessionUrl) throw new Error('Stripe did not return a safe Checkout URL');
+    if (
+      !isStripeOpaqueId(session.id) ||
+      session.livemode !== false ||
+      session.mode !== 'subscription' ||
+      session.status !== 'open' ||
+      expandableId(session.customer) !== customerId ||
+      session.metadata?.demoUserId !== user.id ||
+      !Number.isSafeInteger(session.expires_at) ||
+      session.expires_at !== Math.floor(attempt.expiresAt.getTime() / 1000)
+    ) {
+      throw new Error('Stripe did not return a valid Checkout Session');
+    }
     await this.repository.completeCheckoutAttempt(user.id, attempt.id, {
       id: session.id,
       url: sessionUrl,

@@ -11,6 +11,7 @@ import {
 import { CheckoutUnavailableError } from './errors.js';
 import { prisma } from './prisma.js';
 import { isMonthlyTestPrice } from './stripe-price.js';
+import { isStripeOpaqueId } from './stripe-config.js';
 import type { Locale, } from './constants.js';
 import type { Repository } from './types.js';
 
@@ -40,16 +41,9 @@ function isUniqueConstraintError(error: unknown) {
   return isRecord(error) && error.code === 'P2002';
 }
 
-function opaqueId(value: unknown) {
-  return typeof value === 'string' && value.length > 0 && Array.from(value).length <= 255
-    ? value
-    : null;
-}
-
 function expandableId(value: unknown) {
-  const directId = opaqueId(value);
-  if (directId) return directId;
-  if (isRecord(value)) return opaqueId(value.id);
+  if (isStripeOpaqueId(value)) return value;
+  if (isRecord(value) && isStripeOpaqueId(value.id)) return value.id;
   return null;
 }
 
@@ -61,7 +55,7 @@ function eventObject(event: Stripe.Event): unknown {
 
 function isSubscriptionReference(value: unknown): value is Stripe.Subscription {
   return isRecord(value) &&
-    opaqueId(value.id) !== null &&
+    isStripeOpaqueId(value.id) &&
     expandableId(value.customer) !== null &&
     isRecord(value.metadata);
 }
@@ -293,7 +287,9 @@ export function createRepository(database: typeof prisma, stripePriceId?: string
 
           if (event.type === 'checkout.session.completed') {
             const session = eventObject(event);
-            const sessionId = isRecord(session) ? opaqueId(session.id) : null;
+            const sessionId = isRecord(session) && isStripeOpaqueId(session.id)
+              ? session.id
+              : null;
             const customerId = isRecord(session) ? expandableId(session.customer) : null;
             const subscriptionId = isRecord(session) ? expandableId(session.subscription) : null;
             const metadata = isRecord(session) && isRecord(session.metadata) ? session.metadata : null;
@@ -311,7 +307,9 @@ export function createRepository(database: typeof prisma, stripePriceId?: string
 
           if (event.type === 'checkout.session.expired') {
             const session = eventObject(event);
-            const sessionId = isRecord(session) ? opaqueId(session.id) : null;
+            const sessionId = isRecord(session) && isStripeOpaqueId(session.id)
+              ? session.id
+              : null;
             const customerId = isRecord(session) ? expandableId(session.customer) : null;
             const metadata = isRecord(session) && isRecord(session.metadata)
               ? session.metadata
@@ -340,7 +338,7 @@ export function createRepository(database: typeof prisma, stripePriceId?: string
           if (event.type === 'customer.deleted') {
             const customer = eventObject(event);
             const customerId = isRecord(customer) && customer.deleted === true
-              ? opaqueId(customer.id)
+              ? expandableId(customer)
               : null;
             if (customerId) {
               await tx.user.updateMany({
