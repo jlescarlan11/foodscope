@@ -113,6 +113,7 @@ export function createApp(deps: AppDependencies) {
     }),
   );
 
+  app.post(['/api/products/search', '/api/billing/checkout-session'], requireFrontendOrigin);
   app.use(express.json({ limit: '100kb' }));
 
   app.get('/api/health', (_req, res) => res.json({ ok: true }));
@@ -141,7 +142,6 @@ export function createApp(deps: AppDependencies) {
 
   app.post(
     '/api/products/search',
-    requireFrontendOrigin,
     asyncRoute(async (req, res) => {
       const parsed = searchSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -226,7 +226,6 @@ export function createApp(deps: AppDependencies) {
 
   app.post(
     '/api/billing/checkout-session',
-    requireFrontendOrigin,
     asyncRoute(async (_req, res) => {
       if (!deps.billing) {
         res.status(503).json({ error: 'Stripe is not configured' });

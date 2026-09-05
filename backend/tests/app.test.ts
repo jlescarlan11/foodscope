@@ -160,10 +160,12 @@ describe('Foodscope API', () => {
 
     const malformed = await request(setup.app)
       .post('/api/billing/checkout-session')
+      .set('origin', setup.dependencies.config.frontendUrl)
       .set('content-type', 'application/json')
       .send('{');
     const oversized = await request(setup.app)
       .post('/api/billing/checkout-session')
+      .set('origin', setup.dependencies.config.frontendUrl)
       .set('content-type', 'application/json')
       .send(JSON.stringify({ padding: 'x'.repeat(101 * 1024) }));
 
@@ -182,7 +184,9 @@ describe('Foodscope API', () => {
     const missingOrigin = await request(setup.app).post('/api/billing/checkout-session');
     const untrustedOrigin = await request(setup.app)
       .post('/api/billing/checkout-session')
-      .set('origin', 'https://attacker.example');
+      .set('origin', 'https://attacker.example')
+      .set('content-type', 'application/json')
+      .send(JSON.stringify({ padding: 'x'.repeat(101 * 1024) }));
 
     expect(missingOrigin.status).toBe(403);
     expect(untrustedOrigin.status).toBe(403);
