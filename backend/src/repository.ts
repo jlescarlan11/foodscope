@@ -35,7 +35,7 @@ function subscriptionPeriodEnd(subscription: Stripe.Subscription, stripePriceId:
     !isRecord(item) || item.object !== 'subscription_item' ||
     !isMonthlyTestPrice(item.price, stripePriceId) ||
     typeof item.current_period_end !== 'number' ||
-    !Number.isFinite(item.current_period_end) || item.current_period_end <= 0
+    !Number.isSafeInteger(item.current_period_end) || item.current_period_end <= 0
   ) return null;
   const end = new Date(item.current_period_end * 1000);
   return Number.isFinite(end.getTime()) && end.getUTCFullYear() <= 9_999 ? end : null;

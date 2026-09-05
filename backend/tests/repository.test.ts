@@ -693,6 +693,14 @@ describe('Stripe webhook repository', () => {
     { data: [{ current_period_end: Number.POSITIVE_INFINITY }] },
     { data: [{
       object: 'subscription_item',
+      current_period_end: 1_800_000_000.5,
+      price: {
+        id: 'price_test', object: 'price', livemode: false, type: 'recurring',
+        recurring: { interval: 'month', interval_count: 1 },
+      },
+    }], has_more: false },
+    { data: [{
+      object: 'subscription_item',
       current_period_end: 253_402_300_800,
       price: {
         id: 'price_test', object: 'price', livemode: false, type: 'recurring',
