@@ -154,6 +154,53 @@ describe('Foodscope API', () => {
     }
   });
 
+  it('does not start provider work after disconnecting during the initial account read', async () => {
+    const setup = harness();
+    let accountReadStarted: (() => void) | undefined;
+    let releaseAccountRead: (() => void) | undefined;
+    const accountRead = new Promise<void>((resolve) => { accountReadStarted = resolve; });
+    const release = new Promise<void>((resolve) => { releaseAccountRead = resolve; });
+    vi.mocked(setup.repository.getDemoUser).mockImplementationOnce(async () => {
+      accountReadStarted?.();
+      await release;
+      return baseUser;
+    });
+    const server = setup.app.listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => server.once('listening', resolve));
+    const connectionClosed = new Promise<void>((resolve) => {
+      server.once('connection', (socket) => socket.once('close', () => resolve()));
+    });
+
+    try {
+      const address = server.address();
+      if (!address || typeof address === 'string') throw new Error('Expected a TCP listener');
+      const controller = new AbortController();
+      const response = fetch(`http://127.0.0.1:${address.port}/api/products/search`, {
+        method: 'POST',
+        headers: { origin: 'http://localhost:3000', 'content-type': 'application/json' },
+        body: JSON.stringify({
+          requestId: '00000000-0000-4000-8000-000000000002',
+          q: 'milk',
+          lang: 'en',
+        }),
+        signal: controller.signal,
+      }).catch(() => undefined);
+
+      await accountRead;
+      controller.abort();
+      await response;
+      await connectionClosed;
+      releaseAccountRead?.();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      expect(setup.dependencies.products.search).not.toHaveBeenCalled();
+      expect(setup.repository.saveSearch).not.toHaveBeenCalled();
+    } finally {
+      releaseAccountRead?.();
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+  });
+
   it('skips history when the response closes during the entitlement recheck', async () => {
     const setup = harness('active');
     let providerSignal: AbortSignal | undefined;

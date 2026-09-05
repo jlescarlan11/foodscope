@@ -148,18 +148,19 @@ export function createApp(deps: AppDependencies) {
         res.status(400).json({ error: 'Enter a search term and choose a supported locale' });
         return;
       }
+      const controller = new AbortController();
+      req.once('aborted', () => controller.abort());
+      res.once('close', () => {
+        if (!res.writableEnded) controller.abort();
+      });
       const user = await deps.repository.getDemoUser();
+      if (controller.signal.aborted) return;
       if (!user) {
         res.status(503).json({ error: 'Demo user is not initialized' });
         return;
       }
 
       let results;
-      const controller = new AbortController();
-      req.once('aborted', () => controller.abort());
-      res.once('close', () => {
-        if (!res.writableEnded) controller.abort();
-      });
       try {
         results = await deps.products.search(parsed.data.q, parsed.data.lang, controller.signal);
       } catch (error) {
