@@ -4,7 +4,7 @@ import { normalizeProduct, OpenFoodFactsProvider } from '../src/open-food-facts.
 describe('Open Food Facts normalization', () => {
   it('prefers the selected localized name and maps available nutrition', () => {
     expect(normalizeProduct({
-      code: '123', product_name: 'Generic', product_name_de: 'Haferdrink', brands: 'Good Foods',
+      code: '123', lang: 'de', product_name: 'Generic', product_name_de: 'Haferdrink', brands: 'Good Foods',
       product_quantity_unit: 'g',
       nutrition_data_per: '100g',
       nutriments: { 'energy-kcal_100g': 44, 'fat_100g': 1.5, ignored: 99 },
@@ -17,6 +17,7 @@ describe('Open Food Facts normalization', () => {
   it('rejects negative or physically impossible nutrition and untrusted images as unavailable', () => {
     expect(normalizeProduct({
       code: 'safe',
+      lang: 'en',
       image_front_url: 'javascript:alert(1)',
       image_url: 'https://tracker.example/product.jpg',
       product_quantity_unit: 'g',
@@ -37,7 +38,7 @@ describe('Open Food Facts normalization', () => {
     'https://user:secret@images.openfoodfacts.org/product.jpg',
     'https://tracker.example/product.jpg',
   ])('rejects credentialed or untrusted image URL %s', (image) => {
-    expect(normalizeProduct({ code: 'safe-image', image_front_url: image }, 'en')?.image)
+    expect(normalizeProduct({ code: 'safe-image', lang: 'en', image_front_url: image }, 'en')?.image)
       .toBeNull();
   });
 
@@ -46,6 +47,7 @@ describe('Open Food Facts normalization', () => {
     (productQuantityUnit) => {
       expect(normalizeProduct({
         code: 'packaging-unit-is-unrelated',
+        lang: 'en',
         product_quantity_unit: productQuantityUnit,
         nutrition_data_per: '100g',
         nutriments: { 'energy-kcal_100g': 44, 'fat_100g': 1.5 },
@@ -62,6 +64,7 @@ describe('Open Food Facts normalization', () => {
   it('never substitutes serving, prepared-product, or per-100-ml nutrition', () => {
     expect(normalizeProduct({
       code: 'wrong-nutrition-bases',
+      lang: 'en',
       nutriments: {
         'fat_serving': 1,
         'fat_prepared_100g': 2,
@@ -77,6 +80,7 @@ describe('Open Food Facts normalization', () => {
     (nutritionDataPer) => {
       expect(normalizeProduct({
         code: 'ambiguous-nutrition-basis',
+        lang: 'en',
         nutrition_data_per: nutritionDataPer,
         nutriments: { 'energy-kcal_100g': 44, 'fat_100g': 1.5 },
       }, 'en')).toEqual({
@@ -86,16 +90,17 @@ describe('Open Food Facts normalization', () => {
   );
 
   it('falls back to the generic name and tolerates missing fields', () => {
-    expect(normalizeProduct({ code: '456', product_name: 'Generic only' }, 'fr')).toEqual({
+    expect(normalizeProduct({ code: '456', lang: 'fr', product_name: 'Generic only' }, 'fr')).toEqual({
       id: '456', name: 'Generic only', brand: null, image: null,
     });
-    expect(normalizeProduct({ code: '789' }, 'nl')?.name).toBeNull();
+    expect(normalizeProduct({ code: '789', lang: 'nl' }, 'nl')?.name).toBeNull();
     expect(normalizeProduct('malformed', 'en')).toBeNull();
   });
 
   it('treats invisible and control-character product text as unavailable', () => {
     expect(normalizeProduct({
       code: '\u0000',
+      lang: 'en',
       _id: 'fallback-id',
       product_name_en: '\u200b',
       product_name: 'Generic name',
@@ -106,8 +111,22 @@ describe('Open Food Facts normalization', () => {
 
     expect(normalizeProduct({
       code: '\u200b',
+      lang: 'en',
       product_name: 'Unidentified product',
     }, 'en')).toBeNull();
+  });
+
+  it('rejects products without selected-locale main-language evidence', () => {
+    expect(normalizeProduct({
+      code: 'other-language',
+      lang: 'de',
+      product_name_fr: 'Nom français disponible',
+      product_name: 'Deutscher Indexname',
+    }, 'fr')).toBeNull();
+    expect(normalizeProduct({
+      code: 'unknown-language',
+      product_name_fr: 'Nom français disponible',
+    }, 'fr')).toBeNull();
   });
 
   it('sends locale-aware headers and retries one gateway failure', async () => {
@@ -119,7 +138,7 @@ describe('Open Food Facts normalization', () => {
         headers: new Headers(),
         body: { cancel },
       } as unknown as Response)
-      .mockResolvedValueOnce(new Response(JSON.stringify({ products: [{ code: '123', product_name_fr: 'Avoine' }] }), {
+      .mockResolvedValueOnce(new Response(JSON.stringify({ products: [{ code: '123', lang: 'fr', product_name_fr: 'Avoine' }] }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
       }));
@@ -132,6 +151,7 @@ describe('Open Food Facts normalization', () => {
     expect(requestUrl.toString()).toContain('/cgi/search.pl?search_terms=avoine&search_simple=1');
     expect(requestUrl.searchParams.get('fields')?.split(',')).toEqual([
       'code',
+      'lang',
       'product_name',
       'product_name_fr',
       'brands',
@@ -173,8 +193,8 @@ describe('Open Food Facts normalization', () => {
 
   it('removes duplicate product IDs from malformed upstream results', async () => {
     const fetcher = vi.fn(async () => new Response(JSON.stringify({ products: [
-      { code: 'duplicate', product_name: 'First' },
-      { code: 'duplicate', product_name: 'Second' },
+      { code: 'duplicate', lang: 'en', product_name: 'First' },
+      { code: 'duplicate', lang: 'en', product_name: 'Second' },
     ] }), { status: 200 }));
     const provider = new OpenFoodFactsProvider('FoodscopeTest/1.0', fetcher);
 
@@ -186,6 +206,7 @@ describe('Open Food Facts normalization', () => {
   it('never returns more products than the requested page size', async () => {
     const upstreamProducts = Array.from({ length: 25 }, (_value, index) => ({
       code: `product-${index + 1}`,
+      lang: 'en',
       product_name: `Product ${index + 1}`,
     }));
     const fetcher = vi.fn(async (input: string | URL | Request) => {

@@ -107,7 +107,7 @@ async function discardResponse(response: Response) {
 }
 
 export function normalizeProduct(raw: unknown, locale: Locale): Omit<Product, 'nutritionLocked'> | null {
-  if (!isRecord(raw)) return null;
+  if (!isRecord(raw) || raw.lang !== locale) return null;
   const id = textValue(raw.code) ?? textValue(raw._id);
   if (!id) return null;
 
@@ -166,6 +166,7 @@ export class OpenFoodFactsProvider implements ProductProvider {
       page_size: String(MAX_PRODUCTS),
       fields: [
         'code',
+        'lang',
         'product_name',
         `product_name_${locale}`,
         'brands',

@@ -23,7 +23,7 @@ Express API
   └── Prisma → MySQL (demo user, subscription state, recent searches)
 ```
 
-The browser never calls Open Food Facts or Stripe APIs directly. Express validates the locale/query, normalizes the small Open Food Facts response, loads subscription state from MySQL, and removes the complete `nutrition` property unless the stored status is `active` or `trialing` with a valid future billing-period end. Every completed search also returns that request's authoritative public account state, including when no result has nutrition, so the browser cannot retain an older entitlement display; the frontend rejects the response and invalidates its plan display if that snapshot is absent or malformed. Missing, unrecognized, or elapsed subscription data fails closed; unknown Stripe status values are durably normalized to `unknown`. API responses use `Cache-Control: no-store` so a prior entitled response cannot survive revocation in a browser or intermediary cache. Every returned nutrient carries its explicit Open Food Facts `_100g` value and unit. Package quantity metadata is deliberately ignored because it describes how the product is packaged, not the nutrition basis; serving and prepared-product fields are never requested or normalized.
+The browser never calls Open Food Facts or Stripe APIs directly. Express validates the locale/query, normalizes the small Open Food Facts response, loads subscription state from MySQL, and removes the complete `nutrition` property unless the stored status is `active` or `trialing` with a valid future billing-period end. Every completed search also returns that request's authoritative public account state, including when no result has nutrition, so the browser cannot retain an older entitlement display; the frontend rejects the response and invalidates its plan display if that snapshot is absent or malformed. Missing, unrecognized, or elapsed subscription data fails closed; unknown Stripe status values are durably normalized to `unknown`. API responses use `Cache-Control: no-store` so a prior entitled response cannot survive revocation in a browser or intermediary cache. Every returned nutrient carries an explicit Open Food Facts `_100g` value and unit from a row that declares a `100g` basis. Package quantity metadata is deliberately ignored because it describes how the product is packaged, not the nutrition basis; serving and prepared-product fields are never requested or normalized.
 Impossible upstream values are treated as unavailable: mass nutrients cannot exceed 100 g per 100 g,
 and energy is conservatively capped at 1,000 kcal per 100 g.
 
@@ -114,7 +114,9 @@ The Checkout success redirect is never treated as authorization. On return, the 
 
 The manually selectable locales are exactly English (`en`), Dutch (`nl`), German (`de`), and French (`fr`). One typed dictionary translates application-owned search, state, subscription, nutrition, and recent-search copy.
 
-Each search sends the selected locale to Express. Product names follow this fallback:
+Each search sends the selected locale to Express. Open Food Facts full-text search indexes a product's
+main language, so Express accepts only rows whose `lang` matches that locale. Product names then
+follow this fallback:
 
 ```text
 Open Food Facts product_name_<selected locale>
