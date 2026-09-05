@@ -142,8 +142,15 @@ export class OpenFoodFactsProvider implements ProductProvider {
       json: '1',
       lc: locale,
       page_size: '20',
-      fields:
-        'code,product_name,product_name_en,product_name_nl,product_name_de,product_name_fr,brands,image_front_url,image_url,nutriments',
+      fields: [
+        'code',
+        'product_name',
+        `product_name_${locale}`,
+        'brands',
+        'image_front_url',
+        'image_url',
+        'nutriments',
+      ].join(','),
     });
     // Open Food Facts v2 only supports structured filters; plain-text search remains on this legacy endpoint.
     const request = () => {

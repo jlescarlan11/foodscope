@@ -48,7 +48,17 @@ describe('Open Food Facts normalization', () => {
 
     await expect(provider.search('avoine', 'fr')).resolves.toMatchObject([{ id: '123', name: 'Avoine' }]);
     expect(fetcher).toHaveBeenCalledTimes(2);
-    expect(String(fetcher.mock.calls[0]?.[0])).toContain('/cgi/search.pl?search_terms=avoine&search_simple=1');
+    const requestUrl = new URL(String(fetcher.mock.calls[0]?.[0]));
+    expect(requestUrl.toString()).toContain('/cgi/search.pl?search_terms=avoine&search_simple=1');
+    expect(requestUrl.searchParams.get('fields')?.split(',')).toEqual([
+      'code',
+      'product_name',
+      'product_name_fr',
+      'brands',
+      'image_front_url',
+      'image_url',
+      'nutriments',
+    ]);
     expect(fetcher.mock.calls[0]?.[1]?.headers).toMatchObject({ 'Accept-Language': 'fr' });
   });
 
