@@ -223,6 +223,23 @@ describe('Open Food Facts normalization', () => {
     expect(fetcher.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
   });
 
+  it('does not spend the upstream request budget when the caller already aborted', async () => {
+    const fetcher = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      init?.signal?.throwIfAborted();
+      return new Response(JSON.stringify({ products: [] }), { status: 200 });
+    });
+    const provider = new OpenFoodFactsProvider('FoodscopeTest/1.0', fetcher);
+
+    for (let requestNumber = 0; requestNumber < 10; requestNumber += 1) {
+      const controller = new AbortController();
+      controller.abort();
+      await expect(provider.search('abandoned', 'en', controller.signal)).rejects.toBeDefined();
+    }
+
+    await expect(provider.search('valid', 'en')).resolves.toEqual([]);
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
   it('blocks an eleventh upstream search request within one minute', async () => {
     let now = 1_000_000;
     const fetcher = vi.fn(async () => new Response(JSON.stringify({ products: [] }), { status: 200 }));

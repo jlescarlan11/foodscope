@@ -174,6 +174,7 @@ export class OpenFoodFactsProvider implements ProductProvider {
     });
     // Open Food Facts v2 only supports structured filters; plain-text search remains on this legacy endpoint.
     const request = () => {
+      signal?.throwIfAborted();
       this.reserveRequest();
       return this.fetcher(`https://world.openfoodfacts.org/cgi/search.pl?${params}`, {
         headers: {
