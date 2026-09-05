@@ -65,11 +65,10 @@ export function createApp(deps: AppDependencies) {
         res.json({ received: true });
         return;
       }
-      const subscriptionEvent = event.type.startsWith('customer.subscription.');
-      const currentSubscription = subscriptionEvent
-        ? await deps.billing.retrieveSubscription((event.data.object as Stripe.Subscription).id)
+      const retrieveSubscription = event.type.startsWith('customer.subscription.')
+        ? (subscriptionId: string) => deps.billing!.retrieveSubscription(subscriptionId)
         : undefined;
-      await deps.repository.processStripeEvent(event, currentSubscription);
+      await deps.repository.processStripeEvent(event, retrieveSubscription);
       res.json({ received: true });
     }),
   );

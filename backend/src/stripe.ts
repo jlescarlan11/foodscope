@@ -3,6 +3,8 @@ import Stripe from 'stripe';
 import type { AppConfig } from './config.js';
 import type { BillingProvider, DemoUser, Repository } from './types.js';
 
+const STRIPE_REQUEST_TIMEOUT_MS = 5_000;
+
 function integrationIdentifier(attemptId: string) {
   const alphabet = 'abcdefghijklmnopqrstuvwxyz';
   const digest = createHash('sha256').update(attemptId).digest();
@@ -31,7 +33,10 @@ export class StripeBillingProvider implements BillingProvider {
     if (!/^(?:sk|rk)_test_/.test(config.stripeSecretKey)) {
       throw new Error('Foodscope only supports Stripe test mode');
     }
-    this.stripe = stripeClient ?? new Stripe(config.stripeSecretKey);
+    this.stripe = stripeClient ?? new Stripe(config.stripeSecretKey, {
+      timeout: STRIPE_REQUEST_TIMEOUT_MS,
+      maxNetworkRetries: 1,
+    });
   }
 
   async createCheckout(user: DemoUser) {

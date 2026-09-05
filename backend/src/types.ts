@@ -52,7 +52,10 @@ export interface Repository {
     session: { id: string; url: string; expiresAt: Date },
   ): Promise<void>;
   isStripeEventProcessed(eventId: string): Promise<boolean>;
-  processStripeEvent(event: Stripe.Event, currentSubscription?: Stripe.Subscription): Promise<void>;
+  processStripeEvent(
+    event: Stripe.Event,
+    retrieveSubscription?: (subscriptionId: string) => Promise<Stripe.Subscription>,
+  ): Promise<void>;
 }
 
 export interface ProductProvider {

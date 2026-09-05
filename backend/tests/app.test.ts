@@ -26,8 +26,12 @@ function harness(status = 'inactive') {
     getOrCreateCheckoutAttempt: vi.fn(async () => ({ id: 'attempt_test', expiresAt: new Date(), sessionUrl: null })),
     completeCheckoutAttempt: vi.fn(async () => undefined),
     isStripeEventProcessed: vi.fn(async () => false),
-    processStripeEvent: vi.fn(async (event: Stripe.Event, currentSubscription?: Stripe.Subscription) => {
+    processStripeEvent: vi.fn(async (
+      event: Stripe.Event,
+      retrieveSubscription?: (subscriptionId: string) => Promise<Stripe.Subscription>,
+    ) => {
       if (event.type === 'customer.subscription.updated') {
+        const currentSubscription = await retrieveSubscription!((event.data.object as Stripe.Subscription).id);
         user = { ...user, subscriptionStatus: currentSubscription!.status };
       }
     }),
@@ -105,10 +109,10 @@ describe('Foodscope API', () => {
   it('fails closed when nutrition access is revoked during an upstream search', async () => {
     const setup = harness('active');
     vi.mocked(setup.dependencies.products.search).mockImplementationOnce(async () => {
-      await setup.repository.processStripeEvent(setup.event, {
+      await setup.repository.processStripeEvent(setup.event, async () => ({
         ...setup.currentSubscription,
         status: 'canceled',
-      });
+      } as Stripe.Subscription));
       return [{
         id: 'revoked', name: 'Revoked', brand: null, image: null,
         nutrition: { fat: { value: 30.9, unit: 'g' } },
@@ -151,12 +155,12 @@ describe('Foodscope API', () => {
   });
 
   it('synchronizes subscription events only after signature verification', async () => {
-    const { app, repository, dependencies, event, currentSubscription } = harness();
+    const { app, repository, dependencies, event } = harness();
     const response = await request(app).post('/api/webhooks/stripe').set('stripe-signature', 'valid').set('content-type', 'application/json').send('{}');
     expect(response.status).toBe(200);
     expect(repository.processStripeEvent).toHaveBeenCalledOnce();
     expect(dependencies.billing!.retrieveSubscription).toHaveBeenCalledWith('sub_test');
-    expect(repository.processStripeEvent).toHaveBeenCalledWith(event, currentSubscription);
+    expect(repository.processStripeEvent).toHaveBeenCalledWith(event, expect.any(Function));
     expect((await request(app).get('/api/user')).body.nutritionAccess).toBe(true);
   });
 
@@ -204,7 +208,7 @@ describe('Foodscope API', () => {
     expect(setup.repository.processStripeEvent).not.toHaveBeenCalled();
   });
 
-  it('returns a retryable failure without processing when current Stripe state cannot be loaded', async () => {
+  it('returns a retryable failure when current Stripe state cannot be loaded durably', async () => {
     const setup = harness();
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     vi.mocked(setup.dependencies.billing!.retrieveSubscription).mockRejectedValueOnce(new Error('sk_test_must_not_be_logged'));
@@ -217,7 +221,7 @@ describe('Foodscope API', () => {
 
     expect(response.status).toBe(500);
     expect(response.body).toEqual({ error: 'Unexpected server error' });
-    expect(setup.repository.processStripeEvent).not.toHaveBeenCalled();
+    expect(setup.repository.processStripeEvent).toHaveBeenCalledOnce();
     expect(errorLog).toHaveBeenCalledWith('Unexpected request failure');
     expect(JSON.stringify(errorLog.mock.calls)).not.toContain('sk_test_must_not_be_logged');
     errorLog.mockRestore();

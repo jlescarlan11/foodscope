@@ -60,8 +60,8 @@ integration('Stripe webhook repository with MySQL', () => {
     const current = subscription('canceled');
 
     await expect(Promise.all([
-      subject.processStripeEvent(duplicate, current),
-      subject.processStripeEvent(duplicate, current),
+      subject.processStripeEvent(duplicate, async () => current),
+      subject.processStripeEvent(duplicate, async () => current),
     ])).resolves.toEqual([undefined, undefined]);
 
     const [storedUser, eventCount] = await Promise.all([
@@ -75,11 +75,48 @@ integration('Stripe webhook repository with MySQL', () => {
   it('cannot restore stale access when events arrive out of order', async () => {
     const current = subscription('unpaid');
 
-    await subject.processStripeEvent(event('evt_newer', 'unpaid'), current);
-    await subject.processStripeEvent(event('evt_older', 'active'), current);
+    await subject.processStripeEvent(event('evt_newer', 'unpaid'), async () => current);
+    await subject.processStripeEvent(event('evt_older', 'active'), async () => current);
 
     await expect(database.user.findUniqueOrThrow({ where: { id: DEMO_USER_ID } }))
       .resolves.toMatchObject({ subscriptionStatus: 'unpaid' });
+  });
+
+  it('serializes current-state reads so a delayed active read cannot overwrite cancellation', async () => {
+    let releaseFirst!: () => void;
+    let firstReadStarted!: () => void;
+    const release = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    const started = new Promise<void>((resolve) => { firstReadStarted = resolve; });
+    let secondReadStarted = false;
+
+    const first = subject.processStripeEvent(event('evt_interleaved_active', 'active'), async () => {
+      firstReadStarted();
+      await release;
+      return subscription('active');
+    });
+    await started;
+    const second = subject.processStripeEvent(event('evt_interleaved_canceled', 'canceled'), async () => {
+      secondReadStarted = true;
+      return subscription('canceled');
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(secondReadStarted).toBe(false);
+
+    releaseFirst();
+    await Promise.all([first, second]);
+    expect(secondReadStarted).toBe(true);
+    await expect(database.user.findUniqueOrThrow({ where: { id: DEMO_USER_ID } }))
+      .resolves.toMatchObject({ subscriptionStatus: 'canceled' });
+  });
+
+  it('rolls back the event marker when the authoritative Stripe read fails', async () => {
+    await expect(subject.processStripeEvent(
+      event('evt_retrieve_failure', 'active'),
+      async () => { throw new Error('Stripe unavailable'); },
+    )).rejects.toThrow('Stripe unavailable');
+
+    await expect(database.stripeWebhookEvent.findUnique({ where: { id: 'evt_retrieve_failure' } }))
+      .resolves.toBeNull();
   });
 
   it('reserves and reuses one Checkout attempt under concurrency', async () => {

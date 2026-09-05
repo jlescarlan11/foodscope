@@ -1,5 +1,5 @@
 import type Stripe from 'stripe';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { DEMO_USER_ID } from './constants.js';
 import { prisma } from './prisma.js';
@@ -30,6 +30,25 @@ async function resolveUserFromSubscription(
     ? await database.user.findUnique({ where: { id: DEMO_USER_ID }, select })
     : await database.user.findUnique({ where: { stripeCustomerId: customerId }, select });
   return user?.stripeCustomerId === customerId ? user : null;
+}
+
+async function lockSubscriptionUser(
+  database: Pick<Prisma.TransactionClient, '$queryRaw'>,
+  subscription: Stripe.Subscription,
+) {
+  const customerId = typeof subscription.customer === 'string'
+    ? subscription.customer
+    : subscription.customer.id;
+  const rows = subscription.metadata.demoUserId === DEMO_USER_ID
+    ? await database.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT id FROM User
+        WHERE id = ${DEMO_USER_ID} AND stripeCustomerId = ${customerId}
+        FOR UPDATE
+      `)
+    : await database.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT id FROM User WHERE stripeCustomerId = ${customerId} FOR UPDATE
+      `);
+  return rows.length > 0;
 }
 
 export function createRepository(database: typeof prisma): Repository {
@@ -130,7 +149,7 @@ export function createRepository(database: typeof prisma): Repository {
         select: { id: true },
       }));
     },
-    async processStripeEvent(event, currentSubscription) {
+    async processStripeEvent(event, retrieveSubscription) {
       try {
         await database.$transaction(async (tx: Prisma.TransactionClient) => {
           await tx.stripeWebhookEvent.create({ data: { id: event.id, type: event.type } });
@@ -158,7 +177,13 @@ export function createRepository(database: typeof prisma): Repository {
             event.type === 'customer.subscription.updated' ||
             event.type === 'customer.subscription.deleted'
           ) {
-            if (!currentSubscription || currentSubscription.id !== event.data.object.id) {
+            const deliveredSubscription = event.data.object;
+            if (!retrieveSubscription) {
+              throw new Error('Current Stripe subscription is required');
+            }
+            if (!await lockSubscriptionUser(tx, deliveredSubscription)) return;
+            const currentSubscription = await retrieveSubscription(deliveredSubscription.id);
+            if (currentSubscription.id !== deliveredSubscription.id) {
               throw new Error('Current Stripe subscription is required');
             }
             const user = await resolveUserFromSubscription(tx, currentSubscription);
@@ -189,7 +214,7 @@ export function createRepository(database: typeof prisma): Repository {
               });
             }
           }
-        });
+        }, { maxWait: 5_000, timeout: 15_000 });
       } catch (error) {
         if (
           typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002' &&
