@@ -122,7 +122,14 @@ export function createApp(deps: AppDependencies) {
       const currentUser = await deps.repository.getDemoUser();
       const unlocked = currentUser ? isActiveSubscription(currentUser.subscriptionStatus) : false;
       const products = results.map((product) => {
-        if (unlocked) return { ...product, nutritionLocked: false };
+        if (unlocked) return {
+          id: product.id,
+          name: product.name,
+          brand: product.brand,
+          image: product.image,
+          ...(product.nutrition ? { nutrition: product.nutrition } : {}),
+          nutritionLocked: false,
+        };
         return {
           id: product.id,
           name: product.name,

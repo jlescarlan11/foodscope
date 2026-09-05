@@ -68,11 +68,19 @@ describe('Foodscope API', () => {
   });
 
   it('sends only available normalized nutrition to an active user', async () => {
-    const response = await request(harness('active').app).get('/api/products/search?q=spread&lang=en');
+    const setup = harness('active');
+    vi.mocked(setup.dependencies.products.search).mockResolvedValueOnce([{
+      id: '3017620422003', name: 'Hazelnut spread', brand: null, image: null,
+      nutrition: { fat: { value: 30.9, unit: 'g' } },
+      providerInternalField: 'must not cross the API boundary',
+    } as never]);
+
+    const response = await request(setup.app).get('/api/products/search?q=spread&lang=en');
     expect(response.body.products[0]).toMatchObject({
       nutritionLocked: false,
-      nutrition: { fat: { value: 30.9, unit: 'g' }, sugars: { value: 56.3, unit: 'g' } },
+      nutrition: { fat: { value: 30.9, unit: 'g' } },
     });
+    expect(response.body.products[0]).not.toHaveProperty('providerInternalField');
   });
 
   it('fails closed when nutrition access is revoked during an upstream search', async () => {
