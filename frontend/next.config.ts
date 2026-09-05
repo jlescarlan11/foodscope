@@ -14,6 +14,7 @@ const nextConfig: NextConfig = {
     }];
   },
   images: {
+    maximumResponseBody: 5_000_000,
     remotePatterns: [
       { protocol: 'https', hostname: 'images.openfoodfacts.org' },
       { protocol: 'https', hostname: '*.openfoodfacts.org' },
