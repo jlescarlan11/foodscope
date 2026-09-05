@@ -115,7 +115,8 @@ export function createApp(deps: AppDependencies) {
       }
 
       await deps.repository.saveSearch(user.id, parsed.data.q, parsed.data.lang);
-      const unlocked = isActiveSubscription(user.subscriptionStatus);
+      const currentUser = await deps.repository.getDemoUser();
+      const unlocked = currentUser ? isActiveSubscription(currentUser.subscriptionStatus) : false;
       const products = results.map((product) => {
         if (unlocked) return { ...product, nutritionLocked: false };
         return {

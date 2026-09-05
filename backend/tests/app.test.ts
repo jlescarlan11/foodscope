@@ -74,6 +74,27 @@ describe('Foodscope API', () => {
     });
   });
 
+  it('fails closed when nutrition access is revoked during an upstream search', async () => {
+    const setup = harness('active');
+    vi.mocked(setup.dependencies.products.search).mockImplementationOnce(async () => {
+      await setup.repository.processStripeEvent(setup.event, {
+        ...setup.currentSubscription,
+        status: 'canceled',
+      });
+      return [{
+        id: 'revoked', name: 'Revoked', brand: null, image: null,
+        nutrition: { fat: { value: 30.9, unit: 'g' } },
+      }];
+    });
+
+    const response = await request(setup.app).get('/api/products/search?q=spread&lang=en');
+
+    expect(response.status).toBe(200);
+    expect(response.body.products[0]).toMatchObject({ nutritionLocked: true });
+    expect(response.body.products[0]).not.toHaveProperty('nutrition');
+    expect(setup.repository.getDemoUser).toHaveBeenCalledTimes(2);
+  });
+
   it('persists valid searches and returns recent entries', async () => {
     const { app, repository } = harness();
     await request(app).get('/api/products/search?q=oat%20milk&lang=nl');
