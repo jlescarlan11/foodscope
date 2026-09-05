@@ -88,6 +88,7 @@ describe('Foodscope API', () => {
       nutritionLocked: false,
     });
     expect(response.body.products[0]).not.toHaveProperty('nutrition');
+    expect(setup.repository.getDemoUser).toHaveBeenCalledOnce();
   });
 
   it('sends only available normalized nutrition to an active user', async () => {

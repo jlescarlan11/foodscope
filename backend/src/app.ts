@@ -130,7 +130,8 @@ export function createApp(deps: AppDependencies) {
       }
 
       await deps.repository.saveSearch(user.id, parsed.data.q, parsed.data.lang);
-      const currentUser = await deps.repository.getDemoUser();
+      const hasNutrition = results.some((product) => product.nutrition !== undefined);
+      const currentUser = hasNutrition ? await deps.repository.getDemoUser() : user;
       const unlocked = currentUser ? isActiveSubscription(currentUser.subscriptionStatus) : false;
       const products = results.map((product) => {
         if (unlocked) return {
