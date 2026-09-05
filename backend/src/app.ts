@@ -193,7 +193,11 @@ export function createApp(deps: AppDependencies) {
 
   app.post(
     '/api/billing/checkout-session',
-    asyncRoute(async (_req, res) => {
+    asyncRoute(async (req, res) => {
+      if (req.header('origin') !== deps.config.frontendUrl) {
+        res.status(403).json({ error: 'Checkout is only available from the Foodscope frontend' });
+        return;
+      }
       if (!deps.billing) {
         res.status(503).json({ error: 'Stripe is not configured' });
         return;

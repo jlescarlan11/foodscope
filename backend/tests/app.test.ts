@@ -86,6 +86,32 @@ describe('Foodscope API', () => {
     errorLog.mockRestore();
   });
 
+  it('rejects cross-site Checkout creation before database or Stripe work', async () => {
+    const setup = harness();
+
+    const missingOrigin = await request(setup.app).post('/api/billing/checkout-session');
+    const untrustedOrigin = await request(setup.app)
+      .post('/api/billing/checkout-session')
+      .set('origin', 'https://attacker.example');
+
+    expect(missingOrigin.status).toBe(403);
+    expect(untrustedOrigin.status).toBe(403);
+    expect(setup.repository.getDemoUser).not.toHaveBeenCalled();
+    expect(setup.dependencies.billing!.createCheckout).not.toHaveBeenCalled();
+  });
+
+  it('allows Checkout creation from the configured frontend origin', async () => {
+    const setup = harness();
+
+    const response = await request(setup.app)
+      .post('/api/billing/checkout-session')
+      .set('origin', setup.dependencies.config.frontendUrl);
+
+    expect(response.status).toBe(201);
+    expect(response.body).toEqual({ url: 'https://checkout.stripe.test/session' });
+    expect(setup.dependencies.billing!.createCheckout).toHaveBeenCalledOnce();
+  });
+
   it('never sends nutrition to an inactive user', async () => {
     const response = await request(harness().app).get('/api/products/search?q=spread&lang=en');
     expect(response.status).toBe(200);
