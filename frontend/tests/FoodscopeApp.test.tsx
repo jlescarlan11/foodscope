@@ -570,6 +570,31 @@ describe('Foodscope locale switching', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('We could not open Checkout');
   });
 
+  it('cancels a pending Checkout request when the view unmounts', async () => {
+    let checkoutSignal: AbortSignal | null | undefined;
+    vi.stubGlobal('fetch', vi.fn((input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/api/user')) {
+        return Promise.resolve({ ok: true, json: async () => accountState() } as Response);
+      }
+      if (url.includes('/api/searches/recent')) {
+        return Promise.resolve({ ok: true, json: async () => ({ searches: [] }) } as Response);
+      }
+      checkoutSignal = init?.signal;
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
+      });
+    }));
+    const view = render(<FoodscopeApp />);
+    await screen.findByText('Free plan');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Unlock nutrition' }));
+    expect(checkoutSignal?.aborted).toBe(false);
+
+    view.unmount();
+    expect(checkoutSignal?.aborted).toBe(true);
+  });
+
   it.each([
     {},
     { url: null },

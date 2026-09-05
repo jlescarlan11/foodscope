@@ -192,6 +192,7 @@ export function FoodscopeApp() {
   const recentController = useRef<AbortController | null>(null);
   const accountSequence = useRef(0);
   const accountController = useRef<AbortController | null>(null);
+  const checkoutController = useRef<AbortController | null>(null);
   const messages = dictionaries[locale];
 
   const refreshRecent = () => {
@@ -257,6 +258,7 @@ export function FoodscopeApp() {
       accountController.current?.abort();
       searchController.current?.abort();
       recentController.current?.abort();
+      checkoutController.current?.abort();
     };
   }, []);
   useEffect(() => { document.documentElement.lang = locale; }, [locale]);
@@ -316,16 +318,21 @@ export function FoodscopeApp() {
 
   function submit(event: FormEvent) { event.preventDefault(); void runSearch(query); }
   async function subscribe() {
+    checkoutController.current?.abort();
+    const controller = new AbortController();
+    checkoutController.current = controller;
     setSubscribing(true); setCheckoutError(false); setCheckoutCancelled(false);
     try {
       const checkout = await api<unknown>(
         '/api/billing/checkout-session',
-        { method: 'POST' },
+        { method: 'POST', signal: controller.signal },
         REQUEST_TIMEOUT_MS.checkout,
       );
       if (!isCheckoutResponse(checkout)) throw new Error('Invalid Checkout response');
+      if (controller.signal.aborted) return;
       window.location.assign(checkout.url);
     } catch (error) {
+      if (controller.signal.aborted) return;
       if (error instanceof ApiResponseError && error.status === 409) {
         setCheckoutConflict(true);
         accountController.current?.abort();
@@ -337,6 +344,8 @@ export function FoodscopeApp() {
         setCheckoutError(true);
       }
       setSubscribing(false);
+    } finally {
+      if (checkoutController.current === controller) checkoutController.current = null;
     }
   }
 
