@@ -412,6 +412,22 @@ describe('Stripe Checkout creation', () => {
     );
   });
 
+  it('does not replace a non-Customer object marked as deleted', async () => {
+    const setup = harness(null, 'cus_existing');
+    setup.customersRetrieve.mockResolvedValueOnce({
+      id: 'cus_existing', object: 'invoice', deleted: true,
+    });
+
+    await expect(setup.provider.createCheckout({
+      ...user,
+      stripeCustomerId: 'cus_existing',
+    })).rejects.toBeInstanceOf(CheckoutUnavailableError);
+
+    expect(setup.customersCreate).not.toHaveBeenCalled();
+    expect(setup.repository.replaceStripeCustomer).not.toHaveBeenCalled();
+    expect(setup.sessionsCreate).not.toHaveBeenCalled();
+  });
+
   it('repairs an unsafe stored URL through the existing idempotent Session request', async () => {
     const setup = harness('javascript:alert(document.domain)');
 
