@@ -51,7 +51,12 @@ function harness(status = 'inactive') {
     id: '3017620422003', name: 'Hazelnut spread', brand: null, image: null,
     nutrition: { fat: { value: 30.9, unit: 'g' as const }, sugars: { value: 56.3, unit: 'g' as const } },
   };
-  const event = { id: 'evt_test', type: 'customer.subscription.updated', data: { object: { id: 'sub_test', status: 'canceled' } } } as unknown as Stripe.Event;
+  const event = {
+    id: 'evt_test',
+    type: 'customer.subscription.updated',
+    livemode: false,
+    data: { object: { id: 'sub_test', status: 'canceled' } },
+  } as unknown as Stripe.Event;
   const currentSubscription = { id: 'sub_test', status: 'active' } as Stripe.Subscription;
   const dependencies: AppDependencies = {
     config: { port: 4000, frontendUrl: 'http://localhost:3000', openFoodFactsUserAgent: 'test' },
@@ -417,6 +422,29 @@ describe('Foodscope API', () => {
     expect(setup.dependencies.billing!.retrieveSubscription).not.toHaveBeenCalled();
     expect(setup.repository.processStripeEvent).not.toHaveBeenCalled();
   });
+
+  it.each([true, undefined])(
+    'acknowledges a relevant event with unsupported livemode %p without durable work',
+    async (livemode) => {
+      const setup = harness();
+      vi.mocked(setup.dependencies.billing!.constructEvent).mockReturnValueOnce({
+        ...setup.event,
+        livemode,
+      } as Stripe.Event);
+
+      const response = await request(setup.app)
+        .post('/api/webhooks/stripe')
+        .set('stripe-signature', 'valid')
+        .set('content-type', 'application/json')
+        .send('{}');
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ received: true });
+      expect(setup.repository.isStripeEventProcessed).not.toHaveBeenCalled();
+      expect(setup.repository.processStripeEvent).not.toHaveBeenCalled();
+      expect(setup.dependencies.billing!.retrieveSubscription).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([
     undefined,

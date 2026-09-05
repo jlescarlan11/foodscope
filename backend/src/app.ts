@@ -93,6 +93,10 @@ export function createApp(deps: AppDependencies) {
         res.json({ received: true });
         return;
       }
+      if (event.livemode !== false) {
+        res.json({ received: true });
+        return;
+      }
       if (typeof event.id !== 'string' || !/^evt_[\x21-\x7e]{1,187}$/.test(event.id)) {
         res.json({ received: true });
         return;
