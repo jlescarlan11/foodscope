@@ -321,7 +321,10 @@ export function createRepository(database: typeof prisma, stripePriceId?: string
               ? session.metadata
               : null;
             if (
-              sessionId && customerId &&
+              isRecord(session) && sessionId && customerId &&
+              session.livemode === false &&
+              session.mode === 'subscription' &&
+              session.status === 'expired' &&
               metadata?.demoUserId === DEMO_USER_ID
             ) {
               await tx.user.updateMany({

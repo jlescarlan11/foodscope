@@ -447,6 +447,9 @@ integration('Repository with MySQL', () => {
         id: 'cs_older_integration',
         customer: 'cus_integration',
         metadata: { demoUserId: DEMO_USER_ID },
+        livemode: false,
+        mode: 'subscription',
+        status: 'expired',
       } },
     } as unknown as Stripe.Event);
     await expect(database.user.findUniqueOrThrow({ where: { id: DEMO_USER_ID } }))
@@ -462,6 +465,9 @@ integration('Repository with MySQL', () => {
         id: 'cs_expired_integration',
         customer: 'cus_integration',
         metadata: { demoUserId: DEMO_USER_ID },
+        livemode: false,
+        mode: 'subscription',
+        status: 'expired',
       } },
     } as unknown as Stripe.Event);
 

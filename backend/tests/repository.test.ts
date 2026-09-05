@@ -640,6 +640,9 @@ describe('Stripe webhook repository', () => {
         id: 'cs_expired',
         customer: 'cus_demo',
         metadata: { demoUserId: DEMO_USER_ID },
+        livemode: false,
+        mode: 'subscription',
+        status: 'expired',
       } },
     } as unknown as Stripe.Event;
 
@@ -659,6 +662,35 @@ describe('Stripe webhook repository', () => {
         stripeCheckoutExpiresAt: null,
       },
     });
+  });
+
+  it.each([
+    ['live-mode Session', { livemode: true, mode: 'subscription', status: 'expired' }],
+    ['non-subscription Session', { livemode: false, mode: 'payment', status: 'expired' }],
+    ['unexpired Session', { livemode: false, mode: 'subscription', status: 'open' }],
+  ])('keeps Checkout recovery for an expired event carrying a %s', async (_description, shape) => {
+    const updateMany = vi.fn();
+    const tx = {
+      stripeWebhookEvent: eventMarker(),
+      user: { updateMany },
+    };
+    const database = {
+      $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<void>) => callback(tx)),
+    } as unknown as typeof prisma;
+    const expired = {
+      id: 'evt_checkout_invalid_expiry',
+      type: 'checkout.session.expired',
+      data: { object: {
+        id: 'cs_current',
+        customer: 'cus_demo',
+        metadata: { demoUserId: DEMO_USER_ID },
+        ...shape,
+      } },
+    } as unknown as Stripe.Event;
+
+    await createBillingRepository(database).processStripeEvent(expired);
+
+    expect(updateMany).not.toHaveBeenCalled();
   });
 
   it('durably ignores completed Checkout with an oversized subscription ID', async () => {
