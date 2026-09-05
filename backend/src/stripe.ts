@@ -84,6 +84,12 @@ export class StripeBillingProvider implements BillingProvider {
         );
         throw this.configuredPriceError;
       }
+      if (price.active !== true) {
+        this.configuredPriceError = new Error(
+          'Stripe Price is unavailable for new Foodscope purchases',
+        );
+        throw this.configuredPriceError;
+      }
       this.configuredPriceValidated = true;
     }).finally(() => {
       if (this.configuredPriceValidation === request) this.configuredPriceValidation = null;

@@ -38,6 +38,7 @@ function harness(sessionUrl: string | null = null) {
   }> => ({ data: [], has_more: false }));
   const pricesRetrieve = vi.fn(async () => ({
     id: 'price_test',
+    active: true,
     livemode: false,
     type: 'recurring',
     recurring: { interval: 'month', interval_count: 1 },
@@ -153,6 +154,7 @@ describe('Stripe Checkout creation', () => {
     const setup = harness();
     setup.pricesRetrieve.mockResolvedValueOnce({
       id: 'price_test',
+      active: true,
       livemode: false,
       type: 'recurring',
       recurring: { interval: 'year', interval_count: 1 },
@@ -167,6 +169,24 @@ describe('Stripe Checkout creation', () => {
     expect(setup.pricesRetrieve).toHaveBeenCalledOnce();
     expect(setup.customersCreate).not.toHaveBeenCalled();
     expect(setup.subscriptionsList).not.toHaveBeenCalled();
+    expect(setup.sessionsCreate).not.toHaveBeenCalled();
+  });
+
+  it('rejects an inactive monthly Price before creating resources', async () => {
+    const setup = harness();
+    setup.pricesRetrieve.mockResolvedValueOnce({
+      id: 'price_test',
+      active: false,
+      livemode: false,
+      type: 'recurring',
+      recurring: { interval: 'month', interval_count: 1 },
+    });
+
+    await expect(setup.provider.createCheckout(user)).rejects.toThrow(
+      'Stripe Price is unavailable for new Foodscope purchases',
+    );
+    expect(setup.pricesRetrieve).toHaveBeenCalledOnce();
+    expect(setup.customersCreate).not.toHaveBeenCalled();
     expect(setup.sessionsCreate).not.toHaveBeenCalled();
   });
 
