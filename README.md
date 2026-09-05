@@ -143,6 +143,8 @@ The behavioral suite covers invalid search input, Open Food Facts normalization 
 - The Express response is reconstructed from explicitly public product fields for inactive users, so restricted values cannot cross the API boundary.
 - Stripe Customer and Subscription metadata plus stored Stripe IDs resolve events to the known user; clients cannot assert identity or entitlement.
 - Checkout configuration failures return safe status messages without exposing provider objects, secrets, or stack traces.
+- Browser API calls have bounded, workflow-specific deadlines; stalled account, search, and Checkout
+  requests return to an explicit retry path instead of leaving controls permanently busy.
 
 ## Intentional simplifications and known limitations
 

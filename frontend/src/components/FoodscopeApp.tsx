@@ -9,11 +9,38 @@ import type { Nutrition, Product, RecentSearch, UserState } from '@/types';
 const API_URL = resolveApiUrl(process.env.NEXT_PUBLIC_API_URL, process.env.NODE_ENV);
 const localeNames: Record<Locale, string> = { en: 'EN', nl: 'NL', de: 'DE', fr: 'FR' };
 const nutritionKeys: Array<keyof Nutrition> = ['energyKcal', 'fat', 'saturatedFat', 'carbohydrates', 'sugars', 'protein', 'salt', 'sodium'];
+export const REQUEST_TIMEOUT_MS = {
+  account: 8_000,
+  search: 22_000,
+  checkout: 20_000,
+} as const;
 
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_URL}${path}`, { ...init, cache: 'no-store' });
-  if (!response.ok) throw new Error('Request failed');
-  return response.json() as Promise<T>;
+async function api<T>(
+  path: string,
+  init?: RequestInit,
+  timeoutMs: number = REQUEST_TIMEOUT_MS.account,
+): Promise<T> {
+  const controller = new AbortController();
+  const callerSignal = init?.signal;
+  const abortFromCaller = () => controller.abort(callerSignal?.reason);
+  if (callerSignal?.aborted) abortFromCaller();
+  else callerSignal?.addEventListener('abort', abortFromCaller, { once: true });
+  const timeout = window.setTimeout(
+    () => controller.abort(new DOMException('Request timed out', 'TimeoutError')),
+    timeoutMs,
+  );
+  try {
+    const response = await fetch(`${API_URL}${path}`, {
+      ...init,
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error('Request failed');
+    return response.json() as Promise<T>;
+  } finally {
+    window.clearTimeout(timeout);
+    callerSignal?.removeEventListener('abort', abortFromCaller);
+  }
 }
 
 function wait(ms: number, signal: AbortSignal) {
@@ -153,6 +180,7 @@ export function FoodscopeApp() {
       const result = await api<{ products: Product[] }>(
         `/api/products/search?q=${encodeURIComponent(clean)}&lang=${searchLocale}`,
         { signal: controller.signal },
+        REQUEST_TIMEOUT_MS.search,
       );
       if (requestId !== searchSequence.current) return;
       setProducts(result.products);
@@ -182,7 +210,11 @@ export function FoodscopeApp() {
   async function subscribe() {
     setSubscribing(true); setError(false);
     try {
-      const { url } = await api<{ url: string }>('/api/billing/checkout-session', { method: 'POST' });
+      const { url } = await api<{ url: string }>(
+        '/api/billing/checkout-session',
+        { method: 'POST' },
+        REQUEST_TIMEOUT_MS.checkout,
+      );
       window.location.assign(url);
     } catch { setError(true); setSubscribing(false); }
   }

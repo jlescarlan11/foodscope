@@ -1,8 +1,8 @@
 import React from 'react';
-import { act, cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { FoodscopeApp } from '@/components/FoodscopeApp';
+import { FoodscopeApp, REQUEST_TIMEOUT_MS } from '@/components/FoodscopeApp';
 
 vi.mock('next/image', () => ({
   default: ({ src, alt, onError }: { src: string; alt: string; onError?: () => void }) => (
@@ -221,6 +221,73 @@ describe('Foodscope locale switching', () => {
     await userEvent.click(retry);
     expect(await screen.findByText('Nutrition unlocked')).toBeInTheDocument();
     expect(accountReads).toBe(2);
+  });
+
+  it('recovers from an account request that never responds', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', vi.fn((input: string | URL | Request, init?: RequestInit) => {
+      if (String(input).includes('/api/searches/recent')) {
+        return Promise.resolve({ ok: true, json: async () => ({ searches: [] }) } as Response);
+      }
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
+      });
+    }));
+
+    render(<FoodscopeApp />);
+    await act(async () => vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS.account));
+
+    expect(screen.getByRole('button', { name: 'Retry plan status' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Unlock nutrition' })).not.toBeInTheDocument();
+  });
+
+  it('recovers from a product search that never responds', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', vi.fn((input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/api/user')) {
+        return Promise.resolve({ ok: true, json: async () => ({ nutritionAccess: false }) } as Response);
+      }
+      if (url.includes('/api/searches/recent')) {
+        return Promise.resolve({ ok: true, json: async () => ({ searches: [] }) } as Response);
+      }
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
+      });
+    }));
+    render(<FoodscopeApp />);
+    await act(async () => Promise.resolve());
+
+    fireEvent.change(screen.getByLabelText('Search products'), { target: { value: 'oats' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Search/ }));
+    await act(async () => vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS.search));
+
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(screen.queryByText('Searching…')).not.toBeInTheDocument();
+  });
+
+  it('re-enables Checkout when its request never responds', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', vi.fn((input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/api/user')) {
+        return Promise.resolve({ ok: true, json: async () => ({ nutritionAccess: false }) } as Response);
+      }
+      if (url.includes('/api/searches/recent')) {
+        return Promise.resolve({ ok: true, json: async () => ({ searches: [] }) } as Response);
+      }
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
+      });
+    }));
+    render(<FoodscopeApp />);
+    await act(async () => Promise.resolve());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Unlock nutrition' }));
+    await act(async () => vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS.checkout));
+
+    expect(screen.getByRole('button', { name: 'Unlock nutrition' })).toBeEnabled();
+    expect(screen.getByRole('alert')).toBeInTheDocument();
   });
 
   it('replaces a failed product image with the unavailable fallback', async () => {
