@@ -149,7 +149,6 @@ export function createApp(deps: AppDependencies) {
         return;
       }
 
-      await deps.repository.saveSearch(user.id, parsed.data.q, parsed.data.lang);
       const publicResults = results.map((product) => ({
         product,
         nutrition: publicNutrition(product.nutrition),
@@ -174,6 +173,7 @@ export function createApp(deps: AppDependencies) {
           nutritionLocked: nutrition !== undefined,
         };
       });
+      await deps.repository.saveSearch(user.id, parsed.data.q, parsed.data.lang);
       res.json({ products });
     }),
   );

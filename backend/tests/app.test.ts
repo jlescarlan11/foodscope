@@ -185,6 +185,25 @@ describe('Foodscope API', () => {
     expect(recent.body.searches[0]).toMatchObject({ query: 'oat milk', locale: 'nl' });
   });
 
+  it('does not persist a search when the authoritative entitlement recheck fails', async () => {
+    const setup = harness('active');
+    vi.mocked(setup.repository.getDemoUser)
+      .mockResolvedValueOnce({ ...baseUser, subscriptionStatus: 'active' })
+      .mockRejectedValueOnce(new Error('database unavailable'));
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    const response = await request(setup.app).get('/api/products/search?q=spread&lang=en');
+
+    expect(response.status).toBe(500);
+    expect(response.body).toEqual({ error: 'Unexpected server error' });
+    expect(setup.repository.saveSearch).not.toHaveBeenCalled();
+    expect(errorLog).toHaveBeenCalledWith('Unexpected request failure', {
+      method: 'GET',
+      path: '/api/products/search',
+    });
+    errorLog.mockRestore();
+  });
+
   it('returns a safe upstream failure', async () => {
     const setup = harness();
     vi.mocked(setup.dependencies.products.search).mockRejectedValueOnce(new Error('secret upstream detail'));
