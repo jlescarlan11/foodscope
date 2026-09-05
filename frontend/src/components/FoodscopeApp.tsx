@@ -9,6 +9,16 @@ import type { Nutrition, Product, RecentSearch, UserState } from '@/types';
 const API_URL = resolveApiUrl(process.env.NEXT_PUBLIC_API_URL, process.env.NODE_ENV);
 const localeNames: Record<Locale, string> = { en: 'EN', nl: 'NL', de: 'DE', fr: 'FR' };
 const nutritionKeys: Array<keyof Nutrition> = ['energyKcal', 'fat', 'saturatedFat', 'carbohydrates', 'sugars', 'protein', 'salt', 'sodium'];
+const nutritionUnits: Record<keyof Nutrition, 'g' | 'kcal'> = {
+  energyKcal: 'kcal',
+  fat: 'g',
+  saturatedFat: 'g',
+  carbohydrates: 'g',
+  sugars: 'g',
+  protein: 'g',
+  salt: 'g',
+  sodium: 'g',
+};
 export const REQUEST_TIMEOUT_MS = {
   account: 8_000,
   search: 22_000,
@@ -76,6 +86,36 @@ function isUserState(value: unknown): value is UserState {
     && typeof candidate.nutritionAccess === 'boolean'
     && typeof candidate.billingAvailable === 'boolean'
     && typeof candidate.checkoutAvailable === 'boolean';
+}
+
+function isProductSearchResponse(value: unknown): value is { products: Product[] } {
+  if (!value || typeof value !== 'object') return false;
+  const products = (value as Record<string, unknown>).products;
+  if (!Array.isArray(products)) return false;
+  return products.every((value) => {
+    if (!value || typeof value !== 'object') return false;
+    const product = value as Record<string, unknown>;
+    if (
+      typeof product.id !== 'string' || !product.id ||
+      (product.name !== null && typeof product.name !== 'string') ||
+      (product.brand !== null && typeof product.brand !== 'string') ||
+      (product.image !== null && typeof product.image !== 'string') ||
+      typeof product.nutritionLocked !== 'boolean'
+    ) return false;
+    if (product.nutrition === undefined) return true;
+    if (product.nutritionLocked || !product.nutrition || typeof product.nutrition !== 'object') {
+      return false;
+    }
+    const entries = Object.entries(product.nutrition as Record<string, unknown>);
+    return entries.length > 0 && entries.every(([key, value]) => {
+      if (!nutritionKeys.includes(key as keyof Nutrition) || !value || typeof value !== 'object') {
+        return false;
+      }
+      const nutrient = value as Record<string, unknown>;
+      return typeof nutrient.value === 'number' && Number.isFinite(nutrient.value) &&
+        nutrient.value >= 0 && nutrient.unit === nutritionUnits[key as keyof Nutrition];
+    });
+  });
 }
 
 function ProductCard({ product, messages }: { product: Product; messages: Messages }) {
@@ -202,7 +242,7 @@ export function FoodscopeApp() {
     activeSearchKey.current = searchKey;
     setQuery(clean); setProducts(null); setLoading(true); setSearchError(false);
     try {
-      const result = await api<{ products: Product[] }>(
+      const result = await api<unknown>(
         '/api/products/search',
         {
           method: 'POST',
@@ -212,6 +252,7 @@ export function FoodscopeApp() {
         },
         REQUEST_TIMEOUT_MS.search,
       );
+      if (!isProductSearchResponse(result)) throw new Error('Invalid product response');
       if (sequenceId !== searchSequence.current) return;
       setProducts(result.products);
       if (retrySearchAttempt.current?.requestId === operationId) retrySearchAttempt.current = null;

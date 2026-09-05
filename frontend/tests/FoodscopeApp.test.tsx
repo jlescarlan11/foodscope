@@ -192,6 +192,34 @@ describe('Foodscope locale switching', () => {
     expect(operationIds[1]).toBe(operationIds[0]);
   });
 
+  it.each([
+    {},
+    { products: 'not-an-array' },
+    { products: [{ id: 'unsafe', name: 'Unsafe', brand: null, image: null, nutritionLocked: true,
+      nutrition: { fat: { value: 1, unit: 'g' } } }] },
+    { products: [{ id: 'invalid-unit', name: 'Invalid', brand: null, image: null,
+      nutritionLocked: false, nutrition: { fat: { value: 1, unit: 'kcal' } } }] },
+  ])('reports a recoverable error for malformed product response %#', async (body) => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('/api/user')) {
+        return { ok: true, json: async () => accountState() } as Response;
+      }
+      if (url.includes('/api/searches/recent')) {
+        return { ok: true, json: async () => ({ searches: [] }) } as Response;
+      }
+      return { ok: true, json: async () => body } as Response;
+    }));
+    render(<FoodscopeApp />);
+
+    await userEvent.type(screen.getByLabelText('Search products'), 'oats');
+    await userEvent.click(screen.getByRole('button', { name: /^Search/ }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('We could not complete that search');
+    expect(screen.queryByRole('heading', { name: 'Unsafe' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Search/ })).toBeEnabled();
+  });
+
   it('renders the explicit normalized nutrition value and unit', async () => {
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
