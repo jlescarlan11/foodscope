@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import Stripe from 'stripe';
 import type { AppConfig } from './config.js';
+import { CheckoutUnavailableError } from './errors.js';
 import type { BillingProvider, DemoUser, Repository } from './types.js';
 
 const STRIPE_REQUEST_TIMEOUT_MS = 5_000;
@@ -61,7 +62,7 @@ export class StripeBillingProvider implements BillingProvider {
         subscriptions.has_more ||
         subscriptions.data.some(({ status }) => !TERMINAL_SUBSCRIPTION_STATUSES.has(status))
       ) {
-        throw new Error('Stripe customer already has a non-terminal subscription');
+        throw new CheckoutUnavailableError();
       }
     } else {
       const customer = await this.stripe.customers.create({

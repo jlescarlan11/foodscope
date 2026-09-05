@@ -566,6 +566,35 @@ describe('Foodscope locale switching', () => {
       .toHaveLength(1);
   });
 
+  it('suppresses repeated Checkout calls when Stripe reports a state conflict', async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('/api/user')) {
+        return { ok: true, json: async () => accountState() } as Response;
+      }
+      if (url.includes('/api/searches/recent')) {
+        return { ok: true, json: async () => ({ searches: [] }) } as Response;
+      }
+      return { ok: false, status: 409 } as Response;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<FoodscopeApp />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Unlock nutrition' }));
+
+    expect(await screen.findByText('Checkout is unavailable for the current plan status.'))
+      .toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Unlock nutrition' })).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/api/billing/checkout-session')))
+      .toHaveLength(1);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Retry plan status' }));
+
+    expect(await screen.findByRole('button', { name: 'Unlock nutrition' })).toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/api/billing/checkout-session')))
+      .toHaveLength(1);
+  });
+
   it('replaces a failed product image with the unavailable fallback', async () => {
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       const url = String(input);

@@ -170,6 +170,7 @@ export function FoodscopeApp() {
   const [subscribing, setSubscribing] = useState(false);
   const [searchError, setSearchError] = useState(false);
   const [checkoutError, setCheckoutError] = useState(false);
+  const [checkoutConflict, setCheckoutConflict] = useState(false);
   const [checkoutCancelled, setCheckoutCancelled] = useState(false);
   const searchSequence = useRef(0);
   const searchController = useRef<AbortController | null>(null);
@@ -313,6 +314,7 @@ export function FoodscopeApp() {
       window.location.assign(url);
     } catch (error) {
       if (error instanceof ApiResponseError && error.status === 409) {
+        setCheckoutConflict(true);
         accountController.current?.abort();
         const controller = new AbortController();
         accountController.current = controller;
@@ -326,6 +328,7 @@ export function FoodscopeApp() {
   }
 
   function retryAccount() {
+    setCheckoutConflict(false);
     accountController.current?.abort();
     const controller = new AbortController();
     accountController.current = controller;
@@ -360,9 +363,10 @@ export function FoodscopeApp() {
           <div className="plan-top"><span className="spark" aria-hidden="true">✣</span><div><p>{messages.plan}</p><strong>{accountState === 'loading' ? messages.loading : accountState === 'error' ? messages.accountUnavailable : user?.nutritionAccess ? messages.active : messages.inactive}</strong></div><span aria-hidden="true" className={`status-dot ${accountState === 'ready' && user?.nutritionAccess ? 'on' : ''}`} /></div>
           <p>{messages.subscriptionBody}</p>
           {accountState === 'error' && <button onClick={retryAccount}>{messages.retryAccount}<span aria-hidden="true">↻</span></button>}
-          {accountState === 'ready' && !user?.nutritionAccess && user?.billingAvailable && user.checkoutAvailable && <button onClick={() => void subscribe()} disabled={subscribing}>{subscribing ? messages.redirecting : messages.subscribe}<span aria-hidden="true">↗</span></button>}
+          {accountState === 'ready' && !user?.nutritionAccess && user?.billingAvailable && user.checkoutAvailable && !checkoutConflict && <button onClick={() => void subscribe()} disabled={subscribing}>{subscribing ? messages.redirecting : messages.subscribe}<span aria-hidden="true">↗</span></button>}
           {accountState === 'ready' && !user?.nutritionAccess && user?.billingAvailable === false && <p className="plan-note">{messages.checkoutUnavailable}</p>}
-          {accountState === 'ready' && !user?.nutritionAccess && user?.billingAvailable && !user.checkoutAvailable && <p className="plan-note">{messages.checkoutBlocked}</p>}
+          {accountState === 'ready' && !user?.nutritionAccess && user?.billingAvailable && (!user.checkoutAvailable || checkoutConflict) && <p className="plan-note">{messages.checkoutBlocked}</p>}
+          {accountState === 'ready' && !user?.nutritionAccess && user?.billingAvailable && checkoutConflict && <button onClick={retryAccount}>{messages.retryAccount}<span aria-hidden="true">↻</span></button>}
           {checkoutError && <p className="plan-alert" role="alert">{messages.checkoutError}</p>}
           <small>{messages.monthly}</small>
         </aside>

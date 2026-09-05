@@ -2,6 +2,7 @@ import type Stripe from 'stripe';
 import { describe, expect, it, vi } from 'vitest';
 import { createBillingProvider, StripeBillingProvider } from '../src/stripe.js';
 import { DEMO_USER_ID } from '../src/constants.js';
+import { CheckoutUnavailableError } from '../src/errors.js';
 import type { DemoUser, Repository } from '../src/types.js';
 
 const user: DemoUser = {
@@ -166,7 +167,7 @@ describe('Stripe Checkout creation', () => {
       await expect(setup.provider.createCheckout({
         ...user,
         stripeCustomerId: 'cus_existing',
-      })).rejects.toThrow('already has a non-terminal subscription');
+      })).rejects.toBeInstanceOf(CheckoutUnavailableError);
       expect(setup.subscriptionsList).toHaveBeenCalledWith({
         customer: 'cus_existing',
         status: 'all',
