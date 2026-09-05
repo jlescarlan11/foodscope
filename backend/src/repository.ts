@@ -29,7 +29,7 @@ function subscriptionPeriodEnd(subscription: Stripe.Subscription, stripePriceId:
       : []);
   if (itemEnds.length === 0) return null;
   const end = new Date(Math.max(...itemEnds) * 1000);
-  return Number.isFinite(end.getTime()) ? end : null;
+  return Number.isFinite(end.getTime()) && end.getUTCFullYear() <= 9_999 ? end : null;
 }
 
 const CHECKOUT_ATTEMPT_MS = 60 * 60 * 1000;

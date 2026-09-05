@@ -276,6 +276,42 @@ integration('Repository with MySQL', () => {
     });
   });
 
+  it('durably fails closed for a subscription period outside MySQL DATETIME', async () => {
+    await database.user.update({
+      where: { id: DEMO_USER_ID },
+      data: {
+        stripeCustomerId: 'cus_integration',
+        stripeSubscriptionId: 'sub_integration',
+        subscriptionStatus: 'active',
+        subscriptionCurrentPeriodEnd: new Date(1_800_000_000 * 1000),
+      },
+    });
+    const current = subscription('active') as unknown as Record<string, unknown>;
+    current.items = { data: [{
+      object: 'subscription_item',
+      current_period_end: 253_402_300_800,
+      price: {
+        id: 'price_test', object: 'price', livemode: false, type: 'recurring',
+        recurring: { interval: 'month', interval_count: 1 },
+      },
+    }] };
+
+    await subject.processStripeEvent(
+      event('evt_unrepresentable_period', 'active'),
+      async () => current as unknown as Stripe.Subscription,
+    );
+
+    const [storedUser, eventCount] = await Promise.all([
+      database.user.findUniqueOrThrow({ where: { id: DEMO_USER_ID } }),
+      database.stripeWebhookEvent.count({ where: { id: 'evt_unrepresentable_period' } }),
+    ]);
+    expect(storedUser).toMatchObject({
+      subscriptionStatus: 'unknown',
+      subscriptionCurrentPeriodEnd: null,
+    });
+    expect(eventCount).toBe(1);
+  });
+
   it('does not adopt a subscription without a stored ID or Checkout handoff', async () => {
     await database.user.update({
       where: { id: DEMO_USER_ID },

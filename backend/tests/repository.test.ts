@@ -643,6 +643,14 @@ describe('Stripe webhook repository', () => {
     undefined,
     { data: [] },
     { data: [{ current_period_end: Number.POSITIVE_INFINITY }] },
+    { data: [{
+      object: 'subscription_item',
+      current_period_end: 253_402_300_800,
+      price: {
+        id: 'price_test', object: 'price', livemode: false, type: 'recurring',
+        recurring: { interval: 'month', interval_count: 1 },
+      },
+    }] },
   ])('fails closed when an active subscription has malformed items %p', async (items) => {
     const update = vi.fn();
     const tx = {
