@@ -61,7 +61,9 @@ describe('Foodscope locale switching', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
     });
-    expect(JSON.parse(String(searchCall?.[1]?.body))).toEqual({ q: 'Hafermilch', lang: 'de' });
+    const searchBody = JSON.parse(String(searchCall?.[1]?.body)) as Record<string, unknown>;
+    expect(searchBody).toMatchObject({ q: 'Hafermilch', lang: 'de' });
+    expect(searchBody.requestId).toMatch(/^[0-9a-f-]{36}$/);
   });
 
   it('links the product data and image attribution to their licenses', () => {
@@ -156,6 +158,36 @@ describe('Foodscope locale switching', () => {
       ok: true,
       json: async () => ({ products: [] }),
     } as Response));
+  });
+
+  it('reuses the operation id when retrying an uncertain search result', async () => {
+    const operationIds: string[] = [];
+    let searchAttempts = 0;
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/api/user')) {
+        return { ok: true, json: async () => accountState() } as Response;
+      }
+      if (url.includes('/api/searches/recent')) {
+        return { ok: true, json: async () => ({ searches: [] }) } as Response;
+      }
+      const body = JSON.parse(String(init?.body)) as { requestId: string };
+      operationIds.push(body.requestId);
+      searchAttempts += 1;
+      return searchAttempts === 1
+        ? { ok: false, status: 502 } as Response
+        : { ok: true, json: async () => ({ products: [] }) } as Response;
+    }));
+    render(<FoodscopeApp />);
+
+    await userEvent.type(screen.getByLabelText('Search products'), 'oats');
+    await userEvent.click(screen.getByRole('button', { name: /^Search/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('We could not complete that search');
+    await userEvent.click(screen.getByRole('button', { name: /^Search/ }));
+    expect(await screen.findByText(/No matching products found/)).toBeInTheDocument();
+
+    expect(operationIds).toHaveLength(2);
+    expect(operationIds[1]).toBe(operationIds[0]);
   });
 
   it('renders the explicit normalized nutrition value and unit', async () => {

@@ -120,6 +120,7 @@ export function FoodscopeApp() {
   const searchSequence = useRef(0);
   const searchController = useRef<AbortController | null>(null);
   const activeSearchKey = useRef<string | null>(null);
+  const retrySearchAttempt = useRef<{ key: string; requestId: string } | null>(null);
   const recentSequence = useRef(0);
   const accountSequence = useRef(0);
   const accountController = useRef<AbortController | null>(null);
@@ -189,7 +190,11 @@ export function FoodscopeApp() {
     if (!clean) return;
     const searchKey = `${searchLocale}\u0000${clean}`;
     if (activeSearchKey.current === searchKey) return;
-    const requestId = ++searchSequence.current;
+    const operationId = retrySearchAttempt.current?.key === searchKey
+      ? retrySearchAttempt.current.requestId
+      : crypto.randomUUID();
+    retrySearchAttempt.current = { key: searchKey, requestId: operationId };
+    const sequenceId = ++searchSequence.current;
     searchController.current?.abort();
     const controller = new AbortController();
     searchController.current = controller;
@@ -201,20 +206,21 @@ export function FoodscopeApp() {
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ q: clean, lang: searchLocale }),
+          body: JSON.stringify({ requestId: operationId, q: clean, lang: searchLocale }),
           signal: controller.signal,
         },
         REQUEST_TIMEOUT_MS.search,
       );
-      if (requestId !== searchSequence.current) return;
+      if (sequenceId !== searchSequence.current) return;
       setProducts(result.products);
+      if (retrySearchAttempt.current?.requestId === operationId) retrySearchAttempt.current = null;
       await refreshRecent(controller.signal);
     } catch (searchError) {
-      if (requestId === searchSequence.current && !(searchError instanceof DOMException && searchError.name === 'AbortError')) {
+      if (sequenceId === searchSequence.current && !(searchError instanceof DOMException && searchError.name === 'AbortError')) {
         setSearchError(true); setProducts(null);
       }
     } finally {
-      if (requestId === searchSequence.current) {
+      if (sequenceId === searchSequence.current) {
         setLoading(false);
         searchController.current = null;
         activeSearchKey.current = null;
@@ -227,6 +233,7 @@ export function FoodscopeApp() {
     searchController.current?.abort();
     searchController.current = null;
     activeSearchKey.current = null;
+    retrySearchAttempt.current = null;
     setLoading(false); setProducts(null); setSearchError(false); setLocale(nextLocale);
   }
 

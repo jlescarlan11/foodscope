@@ -19,6 +19,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function isUniqueConstraintError(error: unknown) {
+  return isRecord(error) && error.code === 'P2002';
+}
+
 function expandableId(value: unknown) {
   if (typeof value === 'string' && value) return value;
   if (isRecord(value) && typeof value.id === 'string' && value.id) return value.id;
@@ -78,8 +82,18 @@ async function lockSubscriptionUser(
 export function createRepository(database: typeof prisma): Repository {
   return {
     getDemoUser: () => database.user.findUnique({ where: { id: DEMO_USER_ID } }),
-    async saveSearch(userId: string, query: string, locale: Locale) {
-      await database.recentSearch.create({ data: { userId, query, locale } });
+    async saveSearch(userId: string, requestId: string, query: string, locale: Locale) {
+      try {
+        await database.recentSearch.create({ data: { userId, requestId, query, locale } });
+      } catch (error) {
+        if (!isUniqueConstraintError(error)) throw error;
+        const existing = await database.recentSearch.findUnique({
+          where: { userId_requestId: { userId, requestId } },
+          select: { query: true, locale: true },
+        });
+        if (existing?.query === query && existing.locale === locale) return;
+        throw error;
+      }
     },
     getRecentSearches: (userId, limit) =>
       database.recentSearch.findMany({
@@ -242,7 +256,7 @@ export function createRepository(database: typeof prisma): Repository {
         }, { maxWait: 5_000, timeout: 15_000 });
       } catch (error) {
         if (
-          typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002' &&
+          isUniqueConstraintError(error) &&
           await database.stripeWebhookEvent.findUnique({ where: { id: event.id }, select: { id: true } })
         ) return;
         throw error;

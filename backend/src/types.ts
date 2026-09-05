@@ -33,7 +33,7 @@ export type RecentSearch = { id: number; query: string; locale: string; createdA
 
 export interface Repository {
   getDemoUser(): Promise<DemoUser | null>;
-  saveSearch(userId: string, query: string, locale: Locale): Promise<void>;
+  saveSearch(userId: string, requestId: string, query: string, locale: Locale): Promise<void>;
   getRecentSearches(userId: string, limit: number): Promise<RecentSearch[]>;
   setStripeCustomer(userId: string, customerId: string): Promise<void>;
   getOrCreateCheckoutAttempt(userId: string): Promise<CheckoutAttempt>;

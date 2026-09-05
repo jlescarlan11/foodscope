@@ -155,6 +155,26 @@ integration('Repository with MySQL', () => {
     );
   });
 
+  it('stores one history row for concurrent retries but preserves separate operations', async () => {
+    const retryId = '00000000-0000-4000-8000-000000000010';
+    await Promise.all([
+      subject.saveSearch(DEMO_USER_ID, retryId, 'retry query', 'en'),
+      subject.saveSearch(DEMO_USER_ID, retryId, 'retry query', 'en'),
+    ]);
+    await subject.saveSearch(
+      DEMO_USER_ID,
+      '00000000-0000-4000-8000-000000000011',
+      'retry query',
+      'en',
+    );
+    await expect(subject.saveSearch(DEMO_USER_ID, retryId, 'different query', 'en'))
+      .rejects.toMatchObject({ code: 'P2002' });
+
+    await expect(database.recentSearch.count({
+      where: { userId: DEMO_USER_ID, query: 'retry query' },
+    })).resolves.toBe(2);
+  });
+
   it('reserves and reuses one Checkout attempt under concurrency', async () => {
     const [first, second] = await Promise.all([
       subject.getOrCreateCheckoutAttempt(DEMO_USER_ID),

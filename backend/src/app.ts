@@ -17,6 +17,7 @@ export type AppDependencies = {
 };
 
 const searchSchema = z.object({
+  requestId: z.string().uuid(),
   q: z.string().trim().min(1).max(120),
   lang: z.enum(SUPPORTED_LOCALES).default('en'),
 });
@@ -186,7 +187,12 @@ export function createApp(deps: AppDependencies) {
           nutritionLocked: nutrition !== undefined,
         };
       });
-      await deps.repository.saveSearch(user.id, parsed.data.q, parsed.data.lang);
+      await deps.repository.saveSearch(
+        user.id,
+        parsed.data.requestId,
+        parsed.data.q,
+        parsed.data.lang,
+      );
       res.json({ products });
     }),
   );

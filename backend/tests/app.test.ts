@@ -19,7 +19,7 @@ function harness(status = 'inactive') {
   const searches: RecentSearch[] = [];
   const repository: Repository = {
     getDemoUser: vi.fn(async () => user),
-    saveSearch: vi.fn(async (_userId: string, query: string, locale: Locale) => {
+    saveSearch: vi.fn(async (_userId: string, _requestId: string, query: string, locale: Locale) => {
       searches.unshift({ id: searches.length + 1, query, locale, createdAt: new Date() });
     }),
     getRecentSearches: vi.fn(async (_userId: string, limit: number) => searches.slice(0, limit)),
@@ -56,11 +56,16 @@ function harness(status = 'inactive') {
   return { app: createApp(dependencies), repository, dependencies, event, currentSubscription };
 }
 
-function search(app: ReturnType<typeof createApp>, q: string, lang: string) {
+function search(
+  app: ReturnType<typeof createApp>,
+  q: string,
+  lang: string,
+  requestId = '00000000-0000-4000-8000-000000000002',
+) {
   return request(app)
     .post('/api/products/search')
     .set('origin', 'http://localhost:3000')
-    .send({ q, lang });
+    .send({ requestId, q, lang });
 }
 
 describe('Foodscope API', () => {
@@ -70,6 +75,7 @@ describe('Foodscope API', () => {
     const { app } = harness();
     expect((await search(app, ' ', 'en')).status).toBe(400);
     expect((await search(app, 'milk', 'es')).status).toBe(400);
+    expect((await search(app, 'milk', 'en', 'not-a-request-id')).status).toBe(400);
   });
 
   it('rejects passive and cross-site search requests before provider work', async () => {
@@ -79,7 +85,7 @@ describe('Foodscope API', () => {
     const untrustedOrigin = await request(setup.app)
       .post('/api/products/search')
       .set('origin', 'https://attacker.example')
-      .send({ q: 'milk', lang: 'en' });
+      .send({ requestId: '00000000-0000-4000-8000-000000000002', q: 'milk', lang: 'en' });
 
     expect(legacyGet.status).toBe(404);
     expect(untrustedOrigin.status).toBe(403);
@@ -243,7 +249,12 @@ describe('Foodscope API', () => {
     const { app, repository } = harness();
     await search(app, 'oat milk', 'nl');
     const recent = await request(app).get('/api/searches/recent');
-    expect(repository.saveSearch).toHaveBeenCalledWith(DEMO_USER_ID, 'oat milk', 'nl');
+    expect(repository.saveSearch).toHaveBeenCalledWith(
+      DEMO_USER_ID,
+      '00000000-0000-4000-8000-000000000002',
+      'oat milk',
+      'nl',
+    );
     expect(recent.body.searches[0]).toMatchObject({ query: 'oat milk', locale: 'nl' });
   });
 
