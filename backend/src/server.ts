@@ -4,7 +4,7 @@ import { OpenFoodFactsProvider } from './open-food-facts.js';
 import { prisma } from './prisma.js';
 import { repository } from './repository.js';
 import { createBillingProvider } from './stripe.js';
-import { configureHttpServer } from './http-server.js';
+import { startHttpServer } from './http-server.js';
 import { disconnectDatabase, initializeDatabase } from './database-startup.js';
 
 const config = loadConfig();
@@ -22,11 +22,10 @@ async function start() {
     return;
   }
 
-  const server = app.listen(config.port, config.host, () => {
+  const server = startHttpServer(app, config.port, config.host, () => {
     const displayHost = config.host.includes(':') ? `[${config.host}]` : config.host;
     console.log(`Foodscope API listening on http://${displayHost}:${config.port}`);
   });
-  configureHttpServer(server);
   const closeDatabase = () => {
     void disconnectDatabase(prisma).then((closed) => {
       if (!closed) process.exitCode = 1;
