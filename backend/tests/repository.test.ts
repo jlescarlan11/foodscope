@@ -758,6 +758,39 @@ describe('Stripe webhook repository', () => {
     expect(tx.user.update).not.toHaveBeenCalled();
   });
 
+  it('retrieves current state when delivered Subscription metadata is malformed', async () => {
+    const update = vi.fn();
+    const retrieveSubscription = vi.fn(async () => subscription('canceled'));
+    const tx = {
+      stripeWebhookEvent: eventMarker(),
+      $queryRaw: vi.fn(async () => [{ id: DEMO_USER_ID }]),
+      user: {
+        update,
+        findUnique: vi.fn(async () => ({
+          id: DEMO_USER_ID,
+          stripeCustomerId: 'cus_demo',
+          stripeSubscriptionId: 'sub_current',
+          stripeCheckoutAttemptId: null,
+        })),
+      },
+    };
+    const database = {
+      $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<void>) => callback(tx)),
+    } as unknown as typeof prisma;
+    const delivered = subscriptionEvent('evt_malformed_delivered_metadata');
+    (delivered.data.object as unknown as Record<string, unknown>).metadata = null;
+
+    await createBillingRepository(database).processStripeEvent(delivered, retrieveSubscription);
+
+    expect(retrieveSubscription).toHaveBeenCalledWith('sub_current');
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        subscriptionStatus: 'canceled',
+        subscriptionCurrentPeriodEnd: new Date(1_800_000_000 * 1000),
+      }),
+    }));
+  });
+
   it('durably revokes entitlement for the mapped deleted Customer', async () => {
     const updateMany = vi.fn(async () => ({ count: 1 }));
     const tx = {

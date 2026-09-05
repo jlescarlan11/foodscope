@@ -70,13 +70,16 @@ function eventObject(event: Stripe.Event): unknown {
   return data ? data.object : undefined;
 }
 
-function isSubscriptionReference(value: unknown): value is Stripe.Subscription {
+function isSubscriptionLocator(value: unknown): value is Stripe.Subscription {
   return isRecord(value) &&
     value.object === 'subscription' &&
     value.livemode === false &&
     isStripeOpaqueId(value.id) &&
-    activeCustomerId(value.customer) !== null &&
-    isRecord(value.metadata);
+    activeCustomerId(value.customer) !== null;
+}
+
+function isSubscriptionReference(value: unknown): value is Stripe.Subscription {
+  return isSubscriptionLocator(value) && isRecord(value.metadata);
 }
 
 async function resolveUserFromSubscription(
@@ -390,7 +393,7 @@ export function createRepository(database: typeof prisma, stripePriceId?: string
             event.type === 'customer.subscription.deleted'
           ) {
             const deliveredSubscription = eventObject(event);
-            if (!isSubscriptionReference(deliveredSubscription)) return;
+            if (!isSubscriptionLocator(deliveredSubscription)) return;
             if (!retrieveSubscription) {
               throw new Error('Current Stripe subscription is required');
             }
