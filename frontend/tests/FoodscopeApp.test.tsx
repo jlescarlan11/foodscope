@@ -91,6 +91,12 @@ describe('Foodscope locale switching', () => {
     fireEvent.submit(input.closest('form')!);
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/api/products/search')))
       .toBe(false);
+
+    fireEvent.change(input, { target: { value: 'milk\u202e.txt' } });
+    expect(screen.getByRole('button', { name: /^Search/ })).toBeDisabled();
+
+    fireEvent.change(input, { target: { value: 'family 👨‍👩‍👧‍👦 pack' } });
+    expect(screen.getByRole('button', { name: /^Search/ })).toBeEnabled();
   });
 
   it('links the product data and image attribution to their licenses', () => {

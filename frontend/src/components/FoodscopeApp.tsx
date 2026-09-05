@@ -26,14 +26,14 @@ export const REQUEST_TIMEOUT_MS = {
 } as const;
 
 const visibleSearchCharacter = /[\p{L}\p{N}\p{P}\p{S}]/u;
-const controlCharacter = /\p{Cc}/u;
+const unsafeSearchCharacter = /[\p{Cc}\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u;
 const MAX_SEARCH_QUERY_CHARACTERS = 120;
 const CHECKOUT_POLL_MARKER_KEY = 'foodscope.checkout-initiated-at';
 const CHECKOUT_POLL_MARKER_MAX_AGE_MS = 2 * 60 * 60 * 1000;
 
 function isUsableSearchQuery(value: string) {
   return Array.from(value).length <= MAX_SEARCH_QUERY_CHARACTERS &&
-    visibleSearchCharacter.test(value) && !controlCharacter.test(value);
+    visibleSearchCharacter.test(value) && !unsafeSearchCharacter.test(value);
 }
 
 function markCheckoutInitiated() {

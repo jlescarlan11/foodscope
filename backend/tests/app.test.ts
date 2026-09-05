@@ -106,6 +106,7 @@ describe('Foodscope API', () => {
     expect((await search(app, '\u0000', 'en')).status).toBe(400);
     expect((await search(app, '\u200b', 'en')).status).toBe(400);
     expect((await search(app, 'milk\u0000', 'en')).status).toBe(400);
+    expect((await search(app, 'milk\u202e.txt', 'en')).status).toBe(400);
     expect((await search(app, 'milk', 'es')).status).toBe(400);
     expect((await search(app, 'milk', 'en', 'not-a-request-id')).status).toBe(400);
     expect((await request(app)
@@ -630,6 +631,7 @@ describe('Foodscope API', () => {
       { id: 4, query: 'x'.repeat(121), locale: 'en', createdAt: new Date() },
       { id: 5, query: '\u0000', locale: 'en', createdAt: new Date() },
       { id: 6, query: '\u200b', locale: 'en', createdAt: new Date() },
+      { id: 7, query: 'milk\u202e.txt', locale: 'en', createdAt: new Date() },
     ]);
 
     const response = await request(setup.app).get('/api/searches/recent');

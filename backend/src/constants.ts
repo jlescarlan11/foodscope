@@ -4,10 +4,10 @@ export const SUPPORTED_LOCALES = ['en', 'nl', 'de', 'fr'] as const;
 export type Locale = (typeof SUPPORTED_LOCALES)[number];
 
 const visibleTextCharacter = /[\p{L}\p{N}\p{P}\p{S}]/u;
-const controlCharacter = /\p{Cc}/u;
+const unsafeTextCharacter = /[\p{Cc}\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u;
 
 export const isUsableText = (value: string) =>
-  visibleTextCharacter.test(value) && !controlCharacter.test(value);
+  visibleTextCharacter.test(value) && !unsafeTextCharacter.test(value);
 
 export const NUTRITION_RULES = {
   energyKcal: { unit: 'kcal', maximum: 1_000 },

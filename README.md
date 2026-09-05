@@ -152,6 +152,8 @@ The behavioral suite covers invalid search input, Open Food Facts normalization 
 - Remote product-image optimization retains the server-side privacy boundary but rejects source
   responses larger than 5 MB before they can consume the optimizer's much larger default allowance.
 - The Express response is reconstructed from explicitly public product fields for inactive users, so restricted values cannot cross the API boundary.
+- Product and search text rejects invisible bidirectional formatting controls that can reorder shared
+  labels, while preserving ordinary Unicode and emoji composition.
 - Stripe Customer and Subscription metadata plus stored Stripe IDs resolve events to the known user; clients cannot assert identity or entitlement.
 - Checkout configuration failures return safe status messages without exposing provider objects, secrets, or stack traces.
 - Browser API calls have bounded, workflow-specific deadlines; stalled account, search, and Checkout

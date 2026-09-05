@@ -94,6 +94,9 @@ describe('Open Food Facts normalization', () => {
       id: '456', name: 'Generic only', brand: null, image: null,
     });
     expect(normalizeProduct({ code: '789', lang: 'nl' }, 'nl')?.name).toBeNull();
+    expect(normalizeProduct({
+      code: 'emoji-name', lang: 'en', product_name: 'Family 👨‍👩‍👧‍👦 pack',
+    }, 'en')?.name).toBe('Family 👨‍👩‍👧‍👦 pack');
     expect(normalizeProduct('malformed', 'en')).toBeNull();
   });
 
@@ -104,13 +107,13 @@ describe('Open Food Facts normalization', () => {
       _id: 'fallback-id',
       product_name_en: '\u200b',
       product_name: 'Generic name',
-      brands: '\u0000',
+      brands: 'Trusted\u2066Spoof',
     }, 'en')).toEqual({
       id: 'fallback-id', name: 'Generic name', brand: null, image: null,
     });
 
     expect(normalizeProduct({
-      code: '\u200b',
+      code: 'barcode\u202e.txt',
       lang: 'en',
       product_name: 'Unidentified product',
     }, 'en')).toBeNull();
