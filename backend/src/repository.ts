@@ -21,7 +21,8 @@ function subscriptionPeriodEnd(subscription: Stripe.Subscription, stripePriceId:
     ? subscription.items.data
     : [];
   const itemEnds = items.flatMap((item) =>
-    isRecord(item) && isMonthlyTestPrice(item.price, stripePriceId) &&
+    isRecord(item) && item.object === 'subscription_item' &&
+      isMonthlyTestPrice(item.price, stripePriceId) &&
       typeof item.current_period_end === 'number' &&
       Number.isFinite(item.current_period_end) && item.current_period_end > 0
       ? [item.current_period_end]

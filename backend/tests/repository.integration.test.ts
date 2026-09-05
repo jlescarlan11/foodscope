@@ -18,6 +18,7 @@ function subscription(status: Stripe.Subscription.Status) {
     metadata: { demoUserId: DEMO_USER_ID },
     status,
     items: { data: [{
+      object: 'subscription_item',
       current_period_end: 1_800_000_000,
       price: {
         id: 'price_test', object: 'price', livemode: false, type: 'recurring',

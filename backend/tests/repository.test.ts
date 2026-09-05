@@ -14,6 +14,7 @@ function subscription(status: Stripe.Subscription.Status) {
     metadata: { demoUserId: DEMO_USER_ID },
     status,
     items: { data: [{
+      object: 'subscription_item',
       current_period_end: 1_800_000_000,
       price: {
         id: 'price_test', object: 'price', livemode: false, type: 'recurring',
@@ -337,6 +338,7 @@ describe('Stripe webhook repository', () => {
     } as unknown as typeof prisma;
     const current = subscription('active') as unknown as Record<string, unknown>;
     current.items = { data: [{
+      object: 'subscription_item',
       current_period_end: 1_800_000_000,
       price: {
         id: 'price_other', object: 'price', livemode: false, type: 'recurring',
@@ -357,7 +359,10 @@ describe('Stripe webhook repository', () => {
     }));
   });
 
-  it('fails closed when the configured monthly item is not a Stripe Price object', async () => {
+  it.each([
+    ['configured monthly item is not a Stripe Price object', 'subscription_item', 'product'],
+    ['configured Price belongs to a non-Subscription item', 'invoiceitem', 'price'],
+  ])('fails closed when the %s', async (_description, itemObject, priceObject) => {
     const update = vi.fn();
     const tx = {
       stripeWebhookEvent: eventMarker(),
@@ -374,15 +379,16 @@ describe('Stripe webhook repository', () => {
     } as unknown as typeof prisma;
     const current = subscription('active') as unknown as Record<string, unknown>;
     current.items = { data: [{
+      object: itemObject,
       current_period_end: 1_800_000_000,
       price: {
-        id: 'price_test', object: 'product', livemode: false, type: 'recurring',
+        id: 'price_test', object: priceObject, livemode: false, type: 'recurring',
         recurring: { interval: 'month', interval_count: 1 },
       },
     }] };
 
     await createBillingRepository(database).processStripeEvent(
-      subscriptionEvent('evt_non_price_item'),
+      subscriptionEvent(`evt_invalid_item_${itemObject}`),
       async () => current as unknown as Stripe.Subscription,
     );
 
@@ -412,6 +418,7 @@ describe('Stripe webhook repository', () => {
     const current = subscription('active') as unknown as Record<string, unknown>;
     current.items = { data: [
       {
+        object: 'subscription_item',
         current_period_end: 1_800_000_000,
         price: {
           id: 'price_test', object: 'price', livemode: false, type: 'recurring',
@@ -419,6 +426,7 @@ describe('Stripe webhook repository', () => {
         },
       },
       {
+        object: 'subscription_item',
         current_period_end: 1_900_000_000,
         price: {
           id: 'price_other', object: 'price', livemode: false, type: 'recurring',
