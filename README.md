@@ -50,7 +50,7 @@ npm run db:seed
 npm run dev
 ```
 
-Open <http://localhost:3000>. The API runs at <http://localhost:4000>. MySQL may take a few seconds to become healthy after its first start; `docker compose ps` shows its status.
+Open <http://localhost:3000>. The API runs at <http://localhost:4000>. MySQL is published only on the workstation loopback interface and may take a few seconds to become healthy after its first start; `docker compose ps` shows its status.
 
 ## Environment variables
 

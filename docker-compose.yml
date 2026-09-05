@@ -8,7 +8,7 @@ services:
       MYSQL_PASSWORD: app
       MYSQL_ROOT_PASSWORD: local_root_password
     ports:
-      - "3306:3306"
+      - "127.0.0.1:3306:3306"
     volumes:
       - foodscope_mysql:/var/lib/mysql
     healthcheck:
