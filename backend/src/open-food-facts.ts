@@ -47,6 +47,7 @@ function imageValue(value: unknown) {
     if (url.protocol !== 'https:') return undefined;
     if (url.username || url.password) return undefined;
     if (url.hostname !== 'images.openfoodfacts.org') return undefined;
+    if (!url.pathname.startsWith('/images/products/') || url.search || url.hash) return undefined;
     return url.toString();
   } catch {
     return undefined;

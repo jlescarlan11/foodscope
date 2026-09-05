@@ -39,6 +39,9 @@ describe('Open Food Facts normalization', () => {
     'https://tracker.example/product.jpg',
     'https://world.openfoodfacts.org/cgi/search.pl',
     'https://unexpected.openfoodfacts.org/product.jpg',
+    'https://images.openfoodfacts.org/cgi/search.pl',
+    'https://images.openfoodfacts.org/images/products/123/front.jpg?variant=untrusted',
+    'https://images.openfoodfacts.org/images/products/123/front.jpg#variant',
   ])('rejects credentialed or untrusted image URL %s', (image) => {
     expect(normalizeProduct({ code: 'safe-image', lang: 'en', image_front_url: image }, 'en')?.image)
       .toBeNull();
