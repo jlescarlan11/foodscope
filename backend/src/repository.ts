@@ -346,7 +346,8 @@ export function createRepository(database: typeof prisma, stripePriceId?: string
 
           if (event.type === 'customer.deleted') {
             const customer = eventObject(event);
-            const customerId = isRecord(customer) && customer.deleted === true
+            const customerId = isRecord(customer) &&
+              customer.object === 'customer' && customer.deleted === true
               ? expandableId(customer)
               : null;
             if (customerId) {

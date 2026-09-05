@@ -807,7 +807,7 @@ describe('Foodscope API', () => {
       id: 'evt_customer_deleted',
       type: 'customer.deleted',
       livemode: false,
-      data: { object: { id: 'cus_test', deleted: true } },
+      data: { object: { id: 'cus_test', object: 'customer', deleted: true } },
     } as unknown as Stripe.Event;
     vi.mocked(setup.dependencies.billing!.constructEvent).mockReturnValueOnce(event);
 

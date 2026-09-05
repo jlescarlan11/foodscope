@@ -610,7 +610,7 @@ describe('Stripe webhook repository', () => {
     const deleted = {
       id: 'evt_customer_deleted',
       type: 'customer.deleted',
-      data: { object: { id: 'cus_demo', deleted: true } },
+      data: { object: { id: 'cus_demo', object: 'customer', deleted: true } },
     } as unknown as Stripe.Event;
 
     await createBillingRepository(database).processStripeEvent(deleted);
@@ -622,6 +622,26 @@ describe('Stripe webhook repository', () => {
         subscriptionCurrentPeriodEnd: null,
       },
     });
+  });
+
+  it('does not revoke entitlement for a deleted event carrying a non-Customer object', async () => {
+    const updateMany = vi.fn();
+    const tx = {
+      stripeWebhookEvent: eventMarker(),
+      user: { updateMany },
+    };
+    const database = {
+      $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<void>) => callback(tx)),
+    } as unknown as typeof prisma;
+    const malformed = {
+      id: 'evt_customer_wrong_object',
+      type: 'customer.deleted',
+      data: { object: { id: 'cus_demo', object: 'subscription', deleted: true } },
+    } as unknown as Stripe.Event;
+
+    await createBillingRepository(database).processStripeEvent(malformed);
+
+    expect(updateMany).not.toHaveBeenCalled();
   });
 
   it('clears only the matching expired Checkout Session', async () => {

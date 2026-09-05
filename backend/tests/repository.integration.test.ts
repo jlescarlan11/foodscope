@@ -421,7 +421,7 @@ integration('Repository with MySQL', () => {
     await subject.processStripeEvent({
       id: 'evt_customer_deleted',
       type: 'customer.deleted',
-      data: { object: { id: 'cus_integration', deleted: true } },
+      data: { object: { id: 'cus_integration', object: 'customer', deleted: true } },
     } as unknown as Stripe.Event);
 
     await expect(database.user.findUniqueOrThrow({ where: { id: DEMO_USER_ID } }))
