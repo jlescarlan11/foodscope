@@ -661,6 +661,31 @@ describe('Stripe webhook repository', () => {
     });
   });
 
+  it('durably ignores completed Checkout with an oversized subscription ID', async () => {
+    const updateMany = vi.fn();
+    const tx = {
+      stripeWebhookEvent: eventMarker(),
+      user: { updateMany },
+    };
+    const database = {
+      $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<void>) => callback(tx)),
+    } as unknown as typeof prisma;
+    const completed = {
+      id: 'evt_checkout_oversized_subscription',
+      type: 'checkout.session.completed',
+      data: { object: {
+        id: 'cs_current',
+        customer: 'cus_demo',
+        subscription: 's'.repeat(256),
+        metadata: { demoUserId: DEMO_USER_ID },
+      } },
+    } as unknown as Stripe.Event;
+
+    await createBillingRepository(database).processStripeEvent(completed);
+
+    expect(updateMany).not.toHaveBeenCalled();
+  });
+
   it.each([
     'customer.subscription.updated',
     'checkout.session.completed',

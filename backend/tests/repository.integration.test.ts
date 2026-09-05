@@ -473,4 +473,34 @@ integration('Repository with MySQL', () => {
         stripeCheckoutExpiresAt: null,
       });
   });
+
+  it('durably ignores completed Checkout with an oversized subscription ID', async () => {
+    const attempt = await subject.getOrCreateCheckoutAttempt(DEMO_USER_ID);
+    await subject.completeCheckoutAttempt(DEMO_USER_ID, attempt.id, {
+      id: 'cs_malformed_integration',
+      url: 'https://checkout.stripe.test/malformed-integration',
+      expiresAt: attempt.expiresAt,
+    });
+
+    await expect(subject.processStripeEvent({
+      id: 'evt_checkout_oversized_subscription',
+      type: 'checkout.session.completed',
+      data: { object: {
+        id: 'cs_malformed_integration',
+        customer: 'cus_integration',
+        subscription: 's'.repeat(256),
+        metadata: { demoUserId: DEMO_USER_ID },
+      } },
+    } as unknown as Stripe.Event)).resolves.toBeUndefined();
+
+    const [storedUser, eventCount] = await Promise.all([
+      database.user.findUniqueOrThrow({ where: { id: DEMO_USER_ID } }),
+      database.stripeWebhookEvent.count({ where: { id: 'evt_checkout_oversized_subscription' } }),
+    ]);
+    expect(storedUser).toMatchObject({
+      stripeSubscriptionId: 'sub_replacement',
+      stripeCheckoutSessionId: 'cs_malformed_integration',
+    });
+    expect(eventCount).toBe(1);
+  });
 });
