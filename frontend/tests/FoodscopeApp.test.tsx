@@ -846,6 +846,47 @@ describe('Foodscope locale switching', () => {
     expect(screen.queryByText('Searching…')).not.toBeInTheDocument();
   });
 
+  it('honors product-search Retry-After before re-enabling search actions', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('/api/user')) {
+        return { ok: true, json: async () => accountState() } as Response;
+      }
+      if (url.includes('/api/searches/recent')) {
+        return {
+          ok: true,
+          json: async () => ({ searches: [{ query: 'milk', locale: 'en' }] }),
+        } as Response;
+      }
+      return {
+        ok: false,
+        status: 503,
+        headers: new Headers({ 'Retry-After': '37' }),
+      } as Response;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<FoodscopeApp />);
+    await act(async () => Promise.resolve());
+
+    fireEvent.change(screen.getByLabelText('Search products'), { target: { value: 'oats' } });
+    const submit = screen.getByRole('button', { name: /^Search/ });
+    fireEvent.click(submit);
+    await act(async () => Promise.resolve());
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Search is temporarily paused');
+    expect(submit).toBeDisabled();
+    expect(screen.getByRole('button', { name: /milk EN/ })).toBeDisabled();
+    expect(fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes('/api/products/search'))).toHaveLength(1);
+
+    await act(async () => vi.advanceTimersByTimeAsync(36_999));
+    expect(submit).toBeDisabled();
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    expect(submit).toBeEnabled();
+    expect(screen.getByRole('button', { name: /milk EN/ })).toBeEnabled();
+  });
+
   it('allows a bounded provider retry to complete before the browser deadline', async () => {
     vi.useFakeTimers();
     vi.stubGlobal('fetch', vi.fn((input: string | URL | Request, init?: RequestInit) => {

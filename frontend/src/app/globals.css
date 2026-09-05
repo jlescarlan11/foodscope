@@ -30,6 +30,7 @@ h1 em { color: #6f9430; font-weight: 400; }
 .recent > span { padding-top: 7px; text-transform: uppercase; letter-spacing: .1em; white-space: nowrap; }
 .recent div { min-width: 0; display: flex; flex-wrap: wrap; gap: 7px; }
 .recent button { max-width: 100%; display: flex; align-items: center; gap: 7px; overflow-wrap: anywhere; text-align: left; border: 1px solid var(--line); background: transparent; color: var(--ink); padding: 6px 10px; border-radius: 999px; }
+.recent button:disabled { opacity: .55; cursor: not-allowed; }
 .recent-locale { color: var(--muted); font-size: .65rem; font-weight: 700; letter-spacing: .08em; }
 .recent-recovery { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
 .recent-recovery p { margin: 0; color: #8e342b; }

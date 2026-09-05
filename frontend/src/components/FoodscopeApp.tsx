@@ -239,6 +239,7 @@ export function FoodscopeApp() {
   const [user, setUser] = useState<UserState | null>(null);
   const [accountState, setAccountState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [loading, setLoading] = useState(false);
+  const [searchRateLimited, setSearchRateLimited] = useState(false);
   const [subscribing, setSubscribing] = useState(false);
   const [searchError, setSearchError] = useState(false);
   const [checkoutError, setCheckoutError] = useState(false);
@@ -254,6 +255,7 @@ export function FoodscopeApp() {
   const accountSequence = useRef(0);
   const accountController = useRef<AbortController | null>(null);
   const checkoutController = useRef<AbortController | null>(null);
+  const searchRetryTimer = useRef<number | null>(null);
   const checkoutRetryTimer = useRef<number | null>(null);
   const messages = dictionaries[locale];
 
@@ -341,6 +343,7 @@ export function FoodscopeApp() {
       searchController.current?.abort();
       recentController.current?.abort();
       checkoutController.current?.abort();
+      if (searchRetryTimer.current !== null) window.clearTimeout(searchRetryTimer.current);
       if (checkoutRetryTimer.current !== null) window.clearTimeout(checkoutRetryTimer.current);
     };
   }, []);
@@ -348,7 +351,7 @@ export function FoodscopeApp() {
 
   async function runSearch(term: string, searchLocale: Locale = locale) {
     const clean = term.trim();
-    if (!clean || !isUsableSearchQuery(clean)) return;
+    if (searchRateLimited || !clean || !isUsableSearchQuery(clean)) return;
     const searchKey = `${searchLocale}\u0000${clean}`;
     if (activeSearchKey.current === searchKey) return;
     const operationId = retrySearchAttempt.current?.key === searchKey
@@ -390,7 +393,21 @@ export function FoodscopeApp() {
       void refreshRecent();
     } catch (searchError) {
       if (sequenceId === searchSequence.current && !(searchError instanceof DOMException && searchError.name === 'AbortError')) {
-        setSearchError(true); setProducts(null);
+        if (
+          searchError instanceof ApiResponseError &&
+          searchError.status === 503 &&
+          searchError.retryAfterSeconds !== undefined
+        ) {
+          setSearchRateLimited(true);
+          if (searchRetryTimer.current !== null) window.clearTimeout(searchRetryTimer.current);
+          searchRetryTimer.current = window.setTimeout(() => {
+            searchRetryTimer.current = null;
+            setSearchRateLimited(false);
+          }, searchError.retryAfterSeconds * 1000);
+        } else {
+          setSearchError(true);
+        }
+        setProducts(null);
       }
     } finally {
       if (sequenceId === searchSequence.current) {
@@ -480,12 +497,13 @@ export function FoodscopeApp() {
             <label className="sr-only" htmlFor="product-search">{messages.searchLabel}</label>
             <span aria-hidden="true" className="search-symbol">⌕</span>
             <input id="product-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={messages.searchPlaceholder} maxLength={MAX_SEARCH_QUERY_CHARACTERS * 2} />
-            <button disabled={loading || !query.trim() || !isUsableSearchQuery(query)}>{loading ? messages.searching : messages.search}<span aria-hidden="true">→</span></button>
+            <button disabled={loading || searchRateLimited || !query.trim() || !isUsableSearchQuery(query)}>{loading ? messages.searching : messages.search}<span aria-hidden="true">→</span></button>
           </form>
-          {recent.length > 0 && <div className="recent"><span>{messages.recent}</span><div>{recent.map((item, index) => <button key={`${item.locale}:${item.query}:${index}`} onClick={() => { const recentLocale = item.locale as Locale; setLocale(recentLocale); setQuery(item.query); void runSearch(item.query, recentLocale); }}>{item.query}<span className="recent-locale">{localeNames[item.locale as Locale]}</span></button>)}</div></div>}
+          {recent.length > 0 && <div className="recent"><span>{messages.recent}</span><div>{recent.map((item, index) => <button disabled={searchRateLimited} key={`${item.locale}:${item.query}:${index}`} onClick={() => { const recentLocale = item.locale as Locale; setLocale(recentLocale); setQuery(item.query); void runSearch(item.query, recentLocale); }}>{item.query}<span className="recent-locale">{localeNames[item.locale as Locale]}</span></button>)}</div></div>}
           {recentError && <div className="recent-recovery"><p role="alert">{messages.recentUnavailable}</p><button onClick={() => void refreshRecent()}>{messages.retryRecent}<span aria-hidden="true">↻</span></button></div>}
           {checkoutCancelled && <p className="notice" role="status">{messages.checkoutCancelled}</p>}
           {searchError && <p className="alert" role="alert">{messages.error}</p>}
+          {searchRateLimited && <p className="alert" role="alert">{messages.searchRateLimited}</p>}
         </div>
 
         <aside className="plan-card">
