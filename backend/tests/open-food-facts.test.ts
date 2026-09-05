@@ -67,6 +67,41 @@ describe('Open Food Facts normalization', () => {
     }]);
   });
 
+  it('cancels an oversized upstream response instead of buffering it without a limit', async () => {
+    const cancel = vi.fn(async () => undefined);
+    const reader = {
+      read: vi.fn(async () => ({ done: false, value: new Uint8Array(1_000_001) })),
+      cancel,
+    };
+    const fetcher = vi.fn(async () => ({
+      status: 200,
+      ok: true,
+      headers: new Headers(),
+      body: { getReader: () => reader },
+    } as unknown as Response));
+    const provider = new OpenFoodFactsProvider('FoodscopeTest/1.0', fetcher);
+
+    await expect(provider.search('milk', 'en')).rejects.toThrow('response exceeded the size limit');
+    expect(reader.read).toHaveBeenCalledOnce();
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
+  it('rejects a declared oversized response before reading its body', async () => {
+    const getReader = vi.fn();
+    const cancel = vi.fn(async () => undefined);
+    const fetcher = vi.fn(async () => ({
+      status: 200,
+      ok: true,
+      headers: new Headers({ 'content-length': '1000001' }),
+      body: { getReader, cancel },
+    } as unknown as Response));
+    const provider = new OpenFoodFactsProvider('FoodscopeTest/1.0', fetcher);
+
+    await expect(provider.search('milk', 'en')).rejects.toThrow('response exceeded the size limit');
+    expect(getReader).not.toHaveBeenCalled();
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
   it('does not hold the request open for a long gateway Retry-After', async () => {
     const fetcher = vi.fn(async () => new Response('', { status: 502, headers: { 'retry-after': '120' } }));
     const provider = new OpenFoodFactsProvider('FoodscopeTest/1.0', fetcher);

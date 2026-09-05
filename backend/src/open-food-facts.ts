@@ -3,6 +3,7 @@ import type { Nutrition, Product, ProductProvider } from './types.js';
 import { setTimeout as delay } from 'node:timers/promises';
 
 type UnknownRecord = Record<string, unknown>;
+const MAX_RESPONSE_BYTES = 1_000_000;
 
 const isRecord = (value: unknown): value is UnknownRecord =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -52,6 +53,35 @@ function retryAfterSeconds(response: Response) {
   const timestamp = Date.parse(value);
   if (!Number.isFinite(timestamp)) return undefined;
   return Math.max(0, Math.ceil((timestamp - Date.now()) / 1000));
+}
+
+async function readBoundedJson(response: Response): Promise<unknown> {
+  const contentLength = response.headers.get('content-length');
+  if (contentLength && /^\d+$/.test(contentLength) && Number(contentLength) > MAX_RESPONSE_BYTES) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new Error('Open Food Facts response exceeded the size limit');
+  }
+  if (!response.body) throw new Error('Open Food Facts returned an empty response');
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    totalBytes += value.byteLength;
+    if (totalBytes > MAX_RESPONSE_BYTES) {
+      await reader.cancel().catch(() => undefined);
+      throw new Error('Open Food Facts response exceeded the size limit');
+    }
+    chunks.push(value);
+  }
+
+  try {
+    return JSON.parse(Buffer.concat(chunks, totalBytes).toString('utf8')) as unknown;
+  } catch {
+    throw new Error('Open Food Facts returned malformed data');
+  }
 }
 
 export function normalizeProduct(raw: unknown, locale: Locale): Omit<Product, 'nutritionLocked'> | null {
@@ -141,7 +171,7 @@ export class OpenFoodFactsProvider implements ProductProvider {
       throw new ProductProviderRateLimitError(retryAfterSeconds(response));
     }
     if (!response.ok) throw new Error(`Open Food Facts returned ${response.status}`);
-    const payload: unknown = await response.json();
+    const payload = await readBoundedJson(response);
     if (!isRecord(payload) || !Array.isArray(payload.products)) {
       throw new Error('Open Food Facts returned malformed data');
     }

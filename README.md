@@ -133,7 +133,8 @@ The behavioral suite covers invalid search input, Open Food Facts normalization 
 ## Technical decisions
 
 - Product records are not persisted; Open Food Facts remains the product source of truth.
-- A small DTO prevents leaking the large upstream payload or provider-specific field names.
+- A selected-field request, 1 MiB response ceiling, and small DTO bound upstream transfer and prevent
+  leaking the large provider payload or provider-specific field names.
 - The Express response is reconstructed from explicitly public product fields for inactive users, so restricted values cannot cross the API boundary.
 - Stripe Customer and Subscription metadata plus stored Stripe IDs resolve events to the known user; clients cannot assert identity or entitlement.
 - Checkout configuration failures return safe status messages without exposing provider objects, secrets, or stack traces.
