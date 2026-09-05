@@ -554,7 +554,12 @@ describe('Foodscope locale switching', () => {
     await act(async () => Promise.resolve());
 
     fireEvent.click(screen.getByRole('button', { name: 'Unlock nutrition' }));
-    await act(async () => vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS.checkout));
+    await act(async () => vi.advanceTimersByTimeAsync(20_000));
+
+    expect(screen.getByRole('button', { name: 'Opening Checkout…' })).toBeDisabled();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+    await act(async () => vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS.checkout - 20_000));
 
     expect(screen.getByRole('button', { name: 'Unlock nutrition' })).toBeEnabled();
     expect(screen.getByRole('alert')).toHaveTextContent('We could not open Checkout');
