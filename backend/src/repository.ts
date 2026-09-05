@@ -14,6 +14,29 @@ function subscriptionPeriodEnd(subscription: Stripe.Subscription) {
 
 const CHECKOUT_ATTEMPT_MS = 31 * 60 * 1000;
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function expandableId(value: unknown) {
+  if (typeof value === 'string' && value) return value;
+  if (isRecord(value) && typeof value.id === 'string' && value.id) return value.id;
+  return null;
+}
+
+function eventObject(event: Stripe.Event): unknown {
+  const rawEvent = event as unknown as Record<string, unknown>;
+  const data = isRecord(rawEvent.data) ? rawEvent.data : null;
+  return data ? data.object : undefined;
+}
+
+function isSubscriptionReference(value: unknown): value is Stripe.Subscription {
+  return isRecord(value) &&
+    typeof value.id === 'string' && Boolean(value.id) &&
+    expandableId(value.customer) !== null &&
+    isRecord(value.metadata);
+}
+
 async function resolveUserFromSubscription(
   database: Pick<Prisma.TransactionClient, 'user'>,
   subscription: Stripe.Subscription,
@@ -155,17 +178,17 @@ export function createRepository(database: typeof prisma): Repository {
           await tx.stripeWebhookEvent.create({ data: { id: event.id, type: event.type } });
 
           if (event.type === 'checkout.session.completed') {
-            const session = event.data.object;
-            const customerId = typeof session.customer === 'string' ? session.customer : session.customer?.id;
-            const subscriptionId = typeof session.subscription === 'string'
-              ? session.subscription
-              : session.subscription?.id;
-            if (session.metadata?.demoUserId === DEMO_USER_ID && customerId && subscriptionId) {
+            const session = eventObject(event);
+            const sessionId = isRecord(session) && typeof session.id === 'string' ? session.id : null;
+            const customerId = isRecord(session) ? expandableId(session.customer) : null;
+            const subscriptionId = isRecord(session) ? expandableId(session.subscription) : null;
+            const metadata = isRecord(session) && isRecord(session.metadata) ? session.metadata : null;
+            if (sessionId && metadata?.demoUserId === DEMO_USER_ID && customerId && subscriptionId) {
               await tx.user.updateMany({
                 where: {
                   id: DEMO_USER_ID,
                   stripeCustomerId: customerId,
-                  stripeCheckoutSessionId: session.id,
+                  stripeCheckoutSessionId: sessionId,
                 },
                 data: { stripeSubscriptionId: subscriptionId },
               });
@@ -177,7 +200,8 @@ export function createRepository(database: typeof prisma): Repository {
             event.type === 'customer.subscription.updated' ||
             event.type === 'customer.subscription.deleted'
           ) {
-            const deliveredSubscription = event.data.object;
+            const deliveredSubscription = eventObject(event);
+            if (!isSubscriptionReference(deliveredSubscription)) return;
             if (!retrieveSubscription) {
               throw new Error('Current Stripe subscription is required');
             }

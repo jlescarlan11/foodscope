@@ -137,6 +137,38 @@ describe('Stripe webhook repository', () => {
     expect(tx.user.update).not.toHaveBeenCalled();
   });
 
+  it.each([
+    'customer.subscription.updated',
+    'checkout.session.completed',
+  ] as const)('durably ignores a malformed %s event without Stripe or account work', async (type) => {
+    const retrieveSubscription = vi.fn(async () => subscription('active'));
+    const tx = {
+      stripeWebhookEvent: { create: vi.fn() },
+      $queryRaw: vi.fn(),
+      user: { update: vi.fn(), updateMany: vi.fn(), findUnique: vi.fn() },
+    };
+    const database = {
+      $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<void>) => callback(tx)),
+      stripeWebhookEvent: { findUnique: vi.fn() },
+    } as unknown as typeof prisma;
+    const malformed = {
+      id: 'evt_malformed',
+      type,
+      data: { object: null },
+    } as unknown as Stripe.Event;
+
+    await expect(createRepository(database).processStripeEvent(malformed, retrieveSubscription))
+      .resolves.toBeUndefined();
+
+    expect(tx.stripeWebhookEvent.create).toHaveBeenCalledWith({
+      data: { id: 'evt_malformed', type },
+    });
+    expect(tx.$queryRaw).not.toHaveBeenCalled();
+    expect(retrieveSubscription).not.toHaveBeenCalled();
+    expect(tx.user.findUnique).not.toHaveBeenCalled();
+    expect(tx.user.update).not.toHaveBeenCalled();
+  });
+
   it('treats a concurrent event-id conflict as success only when that event is durably present', async () => {
     const duplicate = Object.assign(new Error('duplicate'), { code: 'P2002' });
     const database = {

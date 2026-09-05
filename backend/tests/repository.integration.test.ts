@@ -119,6 +119,28 @@ integration('Repository with MySQL', () => {
       .resolves.toBeNull();
   });
 
+  it('commits the event marker when a relevant event has no usable object', async () => {
+    let stripeReads = 0;
+    const malformed = {
+      id: 'evt_malformed_object',
+      type: 'customer.subscription.updated',
+      data: { object: null },
+    } as unknown as Stripe.Event;
+
+    await subject.processStripeEvent(malformed, async () => {
+      stripeReads += 1;
+      return subscription('active');
+    });
+
+    expect(stripeReads).toBe(0);
+    await expect(database.stripeWebhookEvent.findUnique({
+      where: { id: malformed.id },
+    })).resolves.toMatchObject({
+      id: malformed.id,
+      type: malformed.type,
+    });
+  });
+
   it('returns the eight newest searches deterministically when timestamps tie', async () => {
     const createdAt = new Date('2030-01-01T00:00:00.000Z');
     for (let index = 1; index <= 9; index += 1) {
