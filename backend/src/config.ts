@@ -57,6 +57,29 @@ function validateDatabaseUrl(value: string | undefined) {
   }
 }
 
+function stripeConfig(environment: NodeJS.ProcessEnv) {
+  const stripeSecretKey = environment.STRIPE_SECRET_KEY?.trim() || undefined;
+  const stripeWebhookSecret = environment.STRIPE_WEBHOOK_SECRET?.trim() || undefined;
+  const stripePriceId = environment.STRIPE_PRICE_ID?.trim() || undefined;
+  const values = [stripeSecretKey, stripeWebhookSecret, stripePriceId];
+  if (values.every((value) => value === undefined)) {
+    return { stripeSecretKey, stripeWebhookSecret, stripePriceId };
+  }
+  if (!stripeSecretKey || !stripeWebhookSecret || !stripePriceId) {
+    throw new Error('Stripe configuration requires a test key, webhook secret, and Price ID');
+  }
+  if (!/^(?:sk|rk)_test_.+/.test(stripeSecretKey)) {
+    throw new Error('STRIPE_SECRET_KEY must be a Stripe test-mode secret or restricted key');
+  }
+  if (!/^whsec_.+/.test(stripeWebhookSecret)) {
+    throw new Error('STRIPE_WEBHOOK_SECRET must be a Stripe endpoint signing secret');
+  }
+  if (!/^price_.+/.test(stripePriceId)) {
+    throw new Error('STRIPE_PRICE_ID must be a Stripe Price ID');
+  }
+  return { stripeSecretKey, stripeWebhookSecret, stripePriceId };
+}
+
 export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppConfig {
   const openFoodFactsUserAgent = environment.OPEN_FOOD_FACTS_USER_AGENT?.trim();
   if (
@@ -69,13 +92,12 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
     );
   }
   validateDatabaseUrl(environment.DATABASE_URL);
+  const stripe = stripeConfig(environment);
 
   return {
     port: parsePort(environment.PORT),
     frontendUrl: parseFrontendOrigin(environment.FRONTEND_URL, environment.NODE_ENV),
     openFoodFactsUserAgent,
-    stripeSecretKey: environment.STRIPE_SECRET_KEY,
-    stripeWebhookSecret: environment.STRIPE_WEBHOOK_SECRET,
-    stripePriceId: environment.STRIPE_PRICE_ID,
+    ...stripe,
   };
 }

@@ -78,4 +78,45 @@ describe('runtime configuration', () => {
       FRONTEND_URL: 'http://localhost:3000',
     }).frontendUrl).toBe('http://localhost:3000');
   });
+
+  it('rejects incomplete or structurally invalid Stripe configuration at startup', () => {
+    const validStripe = {
+      STRIPE_SECRET_KEY: 'sk_test_fake',
+      STRIPE_WEBHOOK_SECRET: 'whsec_fake',
+      STRIPE_PRICE_ID: 'price_fake',
+    };
+    const invalidEnvironments = [
+      { STRIPE_PRICE_ID: 'price_fake' },
+      { ...validStripe, STRIPE_SECRET_KEY: 'sk_live_fake' },
+      { ...validStripe, STRIPE_SECRET_KEY: 'sk_test_' },
+      { ...validStripe, STRIPE_WEBHOOK_SECRET: 'secret_fake' },
+      { ...validStripe, STRIPE_PRICE_ID: 'product_fake' },
+    ];
+
+    for (const stripeEnvironment of invalidEnvironments) {
+      expect(() => loadConfig({ ...validEnvironment, ...stripeEnvironment })).toThrow();
+    }
+  });
+
+  it('accepts complete Stripe test configuration and normalizes blank optional values', () => {
+    expect(loadConfig({
+      ...validEnvironment,
+      STRIPE_SECRET_KEY: ' rk_test_fake ',
+      STRIPE_WEBHOOK_SECRET: ' whsec_fake ',
+      STRIPE_PRICE_ID: ' price_fake ',
+    })).toMatchObject({
+      stripeSecretKey: 'rk_test_fake',
+      stripeWebhookSecret: 'whsec_fake',
+      stripePriceId: 'price_fake',
+    });
+    expect(loadConfig({
+      ...validEnvironment,
+      STRIPE_SECRET_KEY: ' ',
+      STRIPE_WEBHOOK_SECRET: '',
+    })).toMatchObject({
+      stripeSecretKey: undefined,
+      stripeWebhookSecret: undefined,
+      stripePriceId: undefined,
+    });
+  });
 });
