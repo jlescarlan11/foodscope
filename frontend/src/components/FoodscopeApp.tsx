@@ -398,7 +398,7 @@ export function FoodscopeApp() {
 
   function submit(event: FormEvent) { event.preventDefault(); void runSearch(query); }
   async function subscribe() {
-    checkoutController.current?.abort();
+    if (checkoutController.current) return;
     const controller = new AbortController();
     checkoutController.current = controller;
     setSubscribing(true); setCheckoutError(false); setCheckoutCancelled(false);

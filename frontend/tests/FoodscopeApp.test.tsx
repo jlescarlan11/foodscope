@@ -909,6 +909,37 @@ describe('Foodscope locale switching', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('We could not open Checkout');
   });
 
+  it('does not replace an in-flight Checkout request on rapid repeated activation', async () => {
+    let checkoutSignal: AbortSignal | undefined;
+    const fetchMock = vi.fn((input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/api/user')) {
+        return Promise.resolve({ ok: true, json: async () => accountState() } as Response);
+      }
+      if (url.includes('/api/searches/recent')) {
+        return Promise.resolve({ ok: true, json: async () => ({ searches: [] }) } as Response);
+      }
+      checkoutSignal = init?.signal ?? undefined;
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<FoodscopeApp />);
+
+    const checkout = await screen.findByRole('button', { name: 'Unlock nutrition' });
+    await act(async () => {
+      fireEvent.click(checkout);
+      fireEvent.click(checkout);
+    });
+
+    const calls = fetchMock.mock.calls.filter(
+      ([url]) => String(url).includes('/api/billing/checkout-session'),
+    );
+    expect(calls).toHaveLength(1);
+    expect(checkoutSignal?.aborted).toBe(false);
+  });
+
   it('cancels a pending Checkout request when the view unmounts', async () => {
     let checkoutSignal: AbortSignal | null | undefined;
     vi.stubGlobal('fetch', vi.fn((input: string | URL | Request, init?: RequestInit) => {
