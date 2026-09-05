@@ -11,8 +11,10 @@ const isRecord = (value: unknown): value is UnknownRecord =>
 const textValue = (value: unknown) =>
   typeof value === 'string' && value.trim() ? value.trim() : undefined;
 
-const numberValue = (value: unknown) =>
-  typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
+const numberValue = (value: unknown, maximum: number) =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= maximum
+    ? value
+    : undefined;
 
 const nutritionFields: Array<[keyof Nutrition, string, 'g' | 'kcal']> = [
   ['energyKcal', 'energy-kcal_100g', 'kcal'],
@@ -97,7 +99,7 @@ export function normalizeProduct(raw: unknown, locale: Locale): Omit<Product, 'n
   const nutrition: Nutrition = {};
 
   for (const [localKey, upstreamKey, unit] of nutritionFields) {
-    const value = numberValue(nutriments[upstreamKey]);
+    const value = numberValue(nutriments[upstreamKey], unit === 'g' ? 100 : 1_000);
     if (value !== undefined) nutrition[localKey] = { value, unit };
   }
 

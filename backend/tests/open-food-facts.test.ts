@@ -12,12 +12,17 @@ describe('Open Food Facts normalization', () => {
     });
   });
 
-  it('rejects negative nutrition and untrusted image URLs as unavailable', () => {
+  it('rejects negative or physically impossible nutrition and untrusted images as unavailable', () => {
     expect(normalizeProduct({
       code: 'safe',
       image_front_url: 'javascript:alert(1)',
       image_url: 'https://tracker.example/product.jpg',
-      nutriments: { 'fat_100g': -1, 'sugars_100g': 0 },
+      nutriments: {
+        'energy-kcal_100g': 1_001,
+        'fat_100g': -1,
+        'proteins_100g': 100.1,
+        'sugars_100g': 0,
+      },
     }, 'en')).toEqual({
       id: 'safe', name: null, brand: null, image: null,
       nutrition: { sugars: { value: 0, unit: 'g' } },
