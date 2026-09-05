@@ -206,6 +206,20 @@ export function createRepository(database: typeof prisma): Repository {
       });
       if (saved.count !== 1) throw new Error('Checkout attempt expired before it could be saved');
     },
+    async releaseCheckoutAttempt(userId, attemptId) {
+      await database.user.updateMany({
+        where: {
+          id: userId,
+          stripeCheckoutAttemptId: attemptId,
+          stripeCheckoutSessionId: null,
+          stripeCheckoutSessionUrl: null,
+        },
+        data: {
+          stripeCheckoutAttemptId: null,
+          stripeCheckoutExpiresAt: null,
+        },
+      });
+    },
     async processStripeEvent(event, retrieveSubscription) {
       await database.$transaction(async (tx: Prisma.TransactionClient) => {
         const marker = await tx.stripeWebhookEvent.createMany({

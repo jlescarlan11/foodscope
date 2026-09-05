@@ -10,6 +10,7 @@ import {
 import type { BillingProvider, DemoUser, Repository } from './types.js';
 
 const STRIPE_REQUEST_TIMEOUT_MS = 5_000;
+const MINIMUM_CHECKOUT_EXPIRY_MS = 30 * 60 * 1000;
 const TERMINAL_SUBSCRIPTION_STATUSES = new Set<Stripe.Subscription.Status>([
   'canceled',
   'incomplete_expired',
@@ -29,6 +30,12 @@ function safeCheckoutUrl(value: string | null) {
   } catch {
     return null;
   }
+}
+
+function isStaleCheckoutExpiryError(error: unknown, expiresAt: Date) {
+  return error instanceof Stripe.errors.StripeInvalidRequestError &&
+    error.param === 'expires_at' &&
+    expiresAt.getTime() <= Date.now() + MINIMUM_CHECKOUT_EXPIRY_MS;
 }
 
 export class StripeBillingProvider implements BillingProvider {
@@ -60,7 +67,10 @@ export class StripeBillingProvider implements BillingProvider {
     return request;
   }
 
-  private async createCheckoutOnce(user: DemoUser) {
+  private async createCheckoutOnce(
+    user: DemoUser,
+    canRecoverStaleExpiry = true,
+  ): Promise<{ url: string }> {
     if (!this.config.stripePriceId) throw new Error('Stripe price is not configured');
 
     const attempt = await this.repository.getOrCreateCheckoutAttempt(user.id);
@@ -89,17 +99,26 @@ export class StripeBillingProvider implements BillingProvider {
       await this.repository.setStripeCustomer(user.id, customerId);
     }
 
-    const session = await this.stripe.checkout.sessions.create({
-      mode: 'subscription',
-      customer: customerId,
-      line_items: [{ price: this.config.stripePriceId, quantity: 1 }],
-      metadata: { demoUserId: user.id },
-      subscription_data: { metadata: { demoUserId: user.id, checkoutAttemptId: attempt.id } },
-      success_url: `${this.config.frontendUrl}/?checkout=success`,
-      cancel_url: `${this.config.frontendUrl}/?checkout=cancelled`,
-      expires_at: Math.floor(attempt.expiresAt.getTime() / 1000),
-      integration_identifier: integrationIdentifier(attempt.id),
-    }, { idempotencyKey: `foodscope-checkout-${attempt.id}` });
+    let session: Stripe.Checkout.Session;
+    try {
+      session = await this.stripe.checkout.sessions.create({
+        mode: 'subscription',
+        customer: customerId,
+        line_items: [{ price: this.config.stripePriceId, quantity: 1 }],
+        metadata: { demoUserId: user.id },
+        subscription_data: { metadata: { demoUserId: user.id, checkoutAttemptId: attempt.id } },
+        success_url: `${this.config.frontendUrl}/?checkout=success`,
+        cancel_url: `${this.config.frontendUrl}/?checkout=cancelled`,
+        expires_at: Math.floor(attempt.expiresAt.getTime() / 1000),
+        integration_identifier: integrationIdentifier(attempt.id),
+      }, { idempotencyKey: `foodscope-checkout-${attempt.id}` });
+    } catch (error) {
+      if (!canRecoverStaleExpiry || !isStaleCheckoutExpiryError(error, attempt.expiresAt)) {
+        throw error;
+      }
+      await this.repository.releaseCheckoutAttempt(user.id, attempt.id);
+      return this.createCheckoutOnce({ ...user, stripeCustomerId: customerId }, false);
+    }
     const sessionUrl = safeCheckoutUrl(session.url);
     if (!sessionUrl) throw new Error('Stripe did not return a safe Checkout URL');
     await this.repository.completeCheckoutAttempt(user.id, attempt.id, {

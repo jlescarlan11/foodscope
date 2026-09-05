@@ -85,6 +85,26 @@ describe('Stripe webhook repository', () => {
     }
   });
 
+  it('releases only the matching Checkout attempt before a Session is stored', async () => {
+    const updateMany = vi.fn(async () => ({ count: 1 }));
+    const database = { user: { updateMany } } as unknown as typeof prisma;
+
+    await createRepository(database).releaseCheckoutAttempt(DEMO_USER_ID, 'attempt_stale');
+
+    expect(updateMany).toHaveBeenCalledWith({
+      where: {
+        id: DEMO_USER_ID,
+        stripeCheckoutAttemptId: 'attempt_stale',
+        stripeCheckoutSessionId: null,
+        stripeCheckoutSessionUrl: null,
+      },
+      data: {
+        stripeCheckoutAttemptId: null,
+        stripeCheckoutExpiresAt: null,
+      },
+    });
+  });
+
   it('uses the Checkout eligibility allowlist in the atomic attempt reservation', async () => {
     const updateMany = vi.fn(async () => ({ count: 0 }));
     const database = {

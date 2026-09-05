@@ -308,14 +308,19 @@ integration('Repository with MySQL', () => {
     ]);
     expect(second.id).toBe(first.id);
 
-    await subject.completeCheckoutAttempt(DEMO_USER_ID, first.id, {
+    await subject.releaseCheckoutAttempt(DEMO_USER_ID, first.id);
+    const replacement = await subject.getOrCreateCheckoutAttempt(DEMO_USER_ID);
+    expect(replacement.id).not.toBe(first.id);
+
+    await subject.completeCheckoutAttempt(DEMO_USER_ID, replacement.id, {
       id: 'cs_test_integration',
       url: 'https://checkout.stripe.test/integration',
-      expiresAt: first.expiresAt,
+      expiresAt: replacement.expiresAt,
     });
+    await subject.releaseCheckoutAttempt(DEMO_USER_ID, replacement.id);
 
     await expect(subject.getOrCreateCheckoutAttempt(DEMO_USER_ID)).resolves.toEqual({
-      ...first,
+      ...replacement,
       sessionUrl: 'https://checkout.stripe.test/integration',
     });
 

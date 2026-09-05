@@ -1,4 +1,4 @@
-import type Stripe from 'stripe';
+import Stripe from 'stripe';
 import { describe, expect, it, vi } from 'vitest';
 import { createBillingProvider, StripeBillingProvider } from '../src/stripe.js';
 import { DEMO_USER_ID } from '../src/constants.js';
@@ -24,6 +24,7 @@ function harness(sessionUrl: string | null = null) {
     getOrCreateCheckoutAttempt: vi.fn(async () => attempt),
     setStripeCustomer: vi.fn(async () => undefined),
     completeCheckoutAttempt: vi.fn(async () => undefined),
+    releaseCheckoutAttempt: vi.fn(async () => undefined),
   } as unknown as Repository;
   const customersCreate = vi.fn(async () => ({ id: 'cus_test' }));
   const sessionsCreate = vi.fn(async () => ({
@@ -193,6 +194,124 @@ describe('Stripe Checkout creation', () => {
       setup.attempt.id,
       expect.objectContaining({ url: 'https://checkout.stripe.test/session' }),
     );
+  });
+
+  it('replaces a stale unsaved attempt after Stripe definitively rejects its expiry', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2030-01-01T00:02:00.000Z'));
+    const setup = harness();
+    const replacement = {
+      id: '00000000-0000-4000-8000-000000000100',
+      expiresAt: new Date('2030-01-01T01:02:00.000Z'),
+      sessionUrl: null,
+    };
+    vi.mocked(setup.repository.getOrCreateCheckoutAttempt)
+      .mockResolvedValueOnce(setup.attempt)
+      .mockResolvedValueOnce(replacement);
+    setup.sessionsCreate
+      .mockRejectedValueOnce(new Stripe.errors.StripeInvalidRequestError({
+        type: 'invalid_request_error',
+        message: 'synthetic expiry rejection',
+        param: 'expires_at',
+      }))
+      .mockResolvedValueOnce({
+        id: 'cs_recovered',
+        url: 'https://checkout.stripe.test/recovered',
+        expires_at: Math.floor(replacement.expiresAt.getTime() / 1000),
+      });
+
+    try {
+      await expect(setup.provider.createCheckout({
+        ...user,
+        stripeCustomerId: 'cus_existing',
+      })).resolves.toEqual({ url: 'https://checkout.stripe.test/recovered' });
+
+      expect(setup.repository.releaseCheckoutAttempt).toHaveBeenCalledWith(
+        user.id,
+        setup.attempt.id,
+      );
+      expect(setup.sessionsCreate).toHaveBeenNthCalledWith(
+        1,
+        expect.anything(),
+        { idempotencyKey: `foodscope-checkout-${setup.attempt.id}` },
+      );
+      expect(setup.sessionsCreate).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          expires_at: Math.floor(replacement.expiresAt.getTime() / 1000),
+        }),
+        { idempotencyKey: `foodscope-checkout-${replacement.id}` },
+      );
+      expect(setup.subscriptionsList).toHaveBeenCalledTimes(2);
+      expect(setup.customersCreate).not.toHaveBeenCalled();
+      expect(setup.repository.completeCheckoutAttempt).toHaveBeenCalledWith(
+        user.id,
+        replacement.id,
+        expect.objectContaining({ id: 'cs_recovered' }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('bounds stale-expiry recovery to one replacement attempt', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2030-01-01T00:02:00.000Z'));
+    const setup = harness();
+    const replacement = {
+      id: '00000000-0000-4000-8000-000000000100',
+      expiresAt: new Date('2030-01-01T01:02:00.000Z'),
+      sessionUrl: null,
+    };
+    vi.mocked(setup.repository.getOrCreateCheckoutAttempt)
+      .mockResolvedValueOnce(setup.attempt)
+      .mockResolvedValueOnce(replacement);
+    const expiryError = new Stripe.errors.StripeInvalidRequestError({
+      type: 'invalid_request_error',
+      message: 'synthetic expiry rejection',
+      param: 'expires_at',
+    });
+    setup.sessionsCreate.mockRejectedValue(expiryError);
+
+    try {
+      await expect(setup.provider.createCheckout({
+        ...user,
+        stripeCustomerId: 'cus_existing',
+      })).rejects.toBe(expiryError);
+
+      expect(setup.sessionsCreate).toHaveBeenCalledTimes(2);
+      expect(setup.repository.releaseCheckoutAttempt).toHaveBeenCalledOnce();
+      expect(setup.repository.releaseCheckoutAttempt).toHaveBeenCalledWith(
+        user.id,
+        setup.attempt.id,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not replace an attempt for a different invalid Stripe parameter', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2030-01-01T00:02:00.000Z'));
+    const setup = harness();
+    const priceError = new Stripe.errors.StripeInvalidRequestError({
+      type: 'invalid_request_error',
+      message: 'synthetic Price rejection',
+      param: 'line_items[0][price]',
+    });
+    setup.sessionsCreate.mockRejectedValueOnce(priceError);
+
+    try {
+      await expect(setup.provider.createCheckout({
+        ...user,
+        stripeCustomerId: 'cus_existing',
+      })).rejects.toBe(priceError);
+
+      expect(setup.sessionsCreate).toHaveBeenCalledOnce();
+      expect(setup.repository.releaseCheckoutAttempt).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('does not persist or return an unsafe URL from Stripe', async () => {

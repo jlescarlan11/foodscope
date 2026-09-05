@@ -48,6 +48,7 @@ export interface Repository {
     attemptId: string,
     session: { id: string; url: string; expiresAt: Date },
   ): Promise<void>;
+  releaseCheckoutAttempt(userId: string, attemptId: string): Promise<void>;
   processStripeEvent(
     event: Stripe.Event,
     retrieveSubscription?: (subscriptionId: string) => Promise<Stripe.Subscription>,
