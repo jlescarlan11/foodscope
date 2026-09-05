@@ -176,19 +176,25 @@ export function FoodscopeApp() {
   const activeSearchKey = useRef<string | null>(null);
   const retrySearchAttempt = useRef<{ key: string; requestId: string } | null>(null);
   const recentSequence = useRef(0);
+  const recentController = useRef<AbortController | null>(null);
   const accountSequence = useRef(0);
   const accountController = useRef<AbortController | null>(null);
   const messages = dictionaries[locale];
 
-  const refreshRecent = (signal?: AbortSignal) => {
+  const refreshRecent = () => {
+    recentController.current?.abort();
+    const controller = new AbortController();
+    recentController.current = controller;
     const requestId = ++recentSequence.current;
     return api<unknown>(
       '/api/searches/recent',
-      signal ? { signal } : undefined,
+      { signal: controller.signal },
     ).then((response) => {
       if (!isRecentSearchResponse(response)) throw new Error('Invalid recent searches response');
       if (requestId === recentSequence.current) setRecent(response.searches);
-    }).catch(() => undefined);
+    }).catch(() => undefined).finally(() => {
+      if (recentController.current === controller) recentController.current = null;
+    });
   };
 
   const loadAccount = async (controller: AbortController, pollAfterCheckout = false) => {
@@ -232,10 +238,11 @@ export function FoodscopeApp() {
       });
     }
 
-    void Promise.all([loadAccount(controller, returnedFromCheckout), refreshRecent(controller.signal)]);
+    void Promise.all([loadAccount(controller, returnedFromCheckout), refreshRecent()]);
     return () => {
       accountController.current?.abort();
       searchController.current?.abort();
+      recentController.current?.abort();
     };
   }, []);
   useEffect(() => { document.documentElement.lang = locale; }, [locale]);
@@ -270,7 +277,7 @@ export function FoodscopeApp() {
       if (sequenceId !== searchSequence.current) return;
       setProducts(result.products);
       if (retrySearchAttempt.current?.requestId === operationId) retrySearchAttempt.current = null;
-      await refreshRecent(controller.signal);
+      void refreshRecent();
     } catch (searchError) {
       if (sequenceId === searchSequence.current && !(searchError instanceof DOMException && searchError.name === 'AbortError')) {
         setSearchError(true); setProducts(null);

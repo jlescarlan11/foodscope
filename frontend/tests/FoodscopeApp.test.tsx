@@ -212,6 +212,40 @@ describe('Foodscope locale switching', () => {
     expect(operationIds[1]).toBe(operationIds[0]);
   });
 
+  it('finishes a successful search while recent-history refresh remains pending', async () => {
+    let recentReads = 0;
+    let secondRecentSignal: AbortSignal | null | undefined;
+    vi.stubGlobal('fetch', vi.fn((input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/api/user')) {
+        return Promise.resolve({ ok: true, json: async () => accountState() } as Response);
+      }
+      if (url.includes('/api/searches/recent')) {
+        recentReads += 1;
+        if (recentReads === 1) {
+          return Promise.resolve({ ok: true, json: async () => ({ searches: [] }) } as Response);
+        }
+        secondRecentSignal = init?.signal;
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ products: [] }) } as Response);
+    }));
+    const view = render(<FoodscopeApp />);
+    await screen.findByText('Free plan');
+
+    await userEvent.type(screen.getByLabelText('Search products'), 'oats');
+    await userEvent.click(screen.getByRole('button', { name: /^Search/ }));
+
+    expect(await screen.findByText(/No matching products found/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Search/ })).toBeEnabled();
+    expect(secondRecentSignal?.aborted).toBe(false);
+
+    view.unmount();
+    expect(secondRecentSignal?.aborted).toBe(true);
+  });
+
   it.each([
     {},
     { products: 'not-an-array' },
