@@ -55,6 +55,8 @@ function eventObject(event: Stripe.Event): unknown {
 
 function isSubscriptionReference(value: unknown): value is Stripe.Subscription {
   return isRecord(value) &&
+    value.object === 'subscription' &&
+    value.livemode === false &&
     isStripeOpaqueId(value.id) &&
     expandableId(value.customer) !== null &&
     isRecord(value.metadata);
@@ -373,7 +375,10 @@ export function createRepository(database: typeof prisma, stripePriceId?: string
             }
             if (!await lockSubscriptionUser(tx, deliveredSubscription)) return;
             const currentSubscription = await retrieveSubscription(deliveredSubscription.id);
-            if (currentSubscription.id !== deliveredSubscription.id) {
+            if (
+              !isSubscriptionReference(currentSubscription) ||
+              currentSubscription.id !== deliveredSubscription.id
+            ) {
               throw new Error('Current Stripe subscription is required');
             }
             const user = await resolveUserFromSubscription(tx, currentSubscription);

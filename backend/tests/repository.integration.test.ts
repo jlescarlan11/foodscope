@@ -12,6 +12,8 @@ const integration = describe.runIf(Boolean(testDatabaseUrl));
 function subscription(status: Stripe.Subscription.Status) {
   return {
     id: 'sub_integration',
+    object: 'subscription',
+    livemode: false,
     customer: 'cus_integration',
     metadata: { demoUserId: DEMO_USER_ID },
     status,

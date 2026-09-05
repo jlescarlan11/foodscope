@@ -8,6 +8,8 @@ import { prisma } from '../src/prisma.js';
 function subscription(status: Stripe.Subscription.Status) {
   return {
     id: 'sub_current',
+    object: 'subscription',
+    livemode: false,
     customer: 'cus_demo',
     metadata: { demoUserId: DEMO_USER_ID },
     status,
@@ -288,6 +290,34 @@ describe('Stripe webhook repository', () => {
     expect(tx.user.findUnique).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: DEMO_USER_ID },
     }));
+  });
+
+  it.each([
+    ['non-Subscription object', { object: 'invoice', livemode: false }],
+    ['live-mode Subscription', { object: 'subscription', livemode: true }],
+  ])('rolls back instead of granting from a retrieved %s', async (_description, shape) => {
+    const update = vi.fn();
+    const tx = {
+      stripeWebhookEvent: eventMarker(),
+      $queryRaw: vi.fn(async () => [{ id: DEMO_USER_ID }]),
+      user: { update, findUnique: vi.fn(async () => ({
+        id: DEMO_USER_ID,
+        stripeCustomerId: 'cus_demo',
+        stripeSubscriptionId: 'sub_current',
+        stripeCheckoutAttemptId: null,
+      })) },
+    };
+    const database = {
+      $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<void>) => callback(tx)),
+    } as unknown as typeof prisma;
+    const current = { ...subscription('active'), ...shape } as unknown as Stripe.Subscription;
+
+    await expect(createBillingRepository(database).processStripeEvent(
+      subscriptionEvent('evt_invalid_current_subscription'),
+      async () => current,
+    )).rejects.toThrow('Current Stripe subscription is required');
+
+    expect(update).not.toHaveBeenCalled();
   });
 
   it('fails closed when the active subscription no longer contains the monthly plan', async () => {
