@@ -182,7 +182,8 @@ export function createApp(deps: AppDependencies) {
   app.use((_req, res) => res.status(404).json({ error: 'Not found' }));
   app.use((error: unknown, _req: Request, res: Response, next: NextFunction) => {
     void next;
-    console.error(error instanceof Error ? error.message : 'Unexpected request failure');
+    void error;
+    console.error('Unexpected request failure');
     res.status(500).json({ error: 'Unexpected server error' });
   });
   return app;

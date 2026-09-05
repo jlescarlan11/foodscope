@@ -167,7 +167,8 @@ describe('Foodscope API', () => {
 
   it('returns a retryable failure without processing when current Stripe state cannot be loaded', async () => {
     const setup = harness();
-    vi.mocked(setup.dependencies.billing!.retrieveSubscription).mockRejectedValueOnce(new Error('Stripe unavailable'));
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.mocked(setup.dependencies.billing!.retrieveSubscription).mockRejectedValueOnce(new Error('sk_test_must_not_be_logged'));
 
     const response = await request(setup.app)
       .post('/api/webhooks/stripe')
@@ -178,5 +179,8 @@ describe('Foodscope API', () => {
     expect(response.status).toBe(500);
     expect(response.body).toEqual({ error: 'Unexpected server error' });
     expect(setup.repository.processStripeEvent).not.toHaveBeenCalled();
+    expect(errorLog).toHaveBeenCalledWith('Unexpected request failure');
+    expect(JSON.stringify(errorLog.mock.calls)).not.toContain('sk_test_must_not_be_logged');
+    errorLog.mockRestore();
   });
 });
