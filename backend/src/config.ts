@@ -40,6 +40,18 @@ function parseFrontendOrigin(value: string | undefined) {
   return url.origin;
 }
 
+function validateDatabaseUrl(value: string | undefined) {
+  if (!value) throw new Error('DATABASE_URL must be a MySQL database URL');
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'mysql:' || !url.hostname || !url.pathname || url.pathname === '/') {
+      throw new Error();
+    }
+  } catch {
+    throw new Error('DATABASE_URL must be a MySQL database URL');
+  }
+}
+
 export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppConfig {
   const openFoodFactsUserAgent = environment.OPEN_FOOD_FACTS_USER_AGENT?.trim();
   if (
@@ -51,6 +63,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
       'OPEN_FOOD_FACTS_USER_AGENT must identify the application, version, and a real contact',
     );
   }
+  validateDatabaseUrl(environment.DATABASE_URL);
 
   return {
     port: parsePort(environment.PORT),

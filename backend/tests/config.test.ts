@@ -3,6 +3,7 @@ import { loadConfig } from '../src/config.js';
 
 describe('runtime configuration', () => {
   const validEnvironment = {
+    DATABASE_URL: 'mysql://app:fake@localhost:3306/foodscope_test',
     OPEN_FOOD_FACTS_USER_AGENT: 'Foodscope/1.0 (ops@foodscope.test)',
   };
 
@@ -22,6 +23,15 @@ describe('runtime configuration', () => {
       frontendUrl: 'http://localhost:3000',
       openFoodFactsUserAgent: 'Foodscope/1.0 (ops@foodscope.test)',
     });
+  });
+
+  it('requires a structurally valid MySQL database URL', () => {
+    for (const databaseUrl of [undefined, '', 'postgres://localhost/foodscope', 'mysql://localhost']) {
+      expect(() => loadConfig({
+        ...validEnvironment,
+        DATABASE_URL: databaseUrl,
+      })).toThrow('DATABASE_URL must be a MySQL database URL');
+    }
   });
 
   it('rejects ports that cannot be listened on', () => {
