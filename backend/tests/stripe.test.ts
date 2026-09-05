@@ -76,7 +76,9 @@ function harness(sessionUrl: string | null = null, customerId: string | null = n
     customer: customerId ?? 'cus_test',
     metadata: { demoUserId: user.id },
   };
-  const sessionsCreate = vi.fn(async (params?: { customer?: string }) => ({
+  const sessionsCreate = vi.fn(async (
+    params?: { customer?: string },
+  ): Promise<Record<string, unknown>> => ({
     ...session,
     customer: params?.customer ?? session.customer,
   }));
@@ -589,6 +591,7 @@ describe('Stripe Checkout creation', () => {
     { mode: 'payment' },
     { status: 'expired' },
     { customer: 'cus_other' },
+    { customer: { id: 'cus_test', object: 'invoice' } },
     { metadata: { demoUserId: 'unexpected-user' } },
     { expires_at: Number.NaN },
     { expires_at: Math.floor(new Date('2030-01-01T00:30:00Z').getTime() / 1000) },
@@ -669,6 +672,13 @@ describe('Stripe Checkout creation', () => {
       data: [{
         id: 'sub_wrong_customer', object: 'subscription', livemode: false,
         customer: 'cus_other', status: 'canceled',
+      }],
+      has_more: false,
+    }],
+    ['returns a terminal Subscription with a non-Customer expanded reference', {
+      data: [{
+        id: 'sub_wrong_customer_object', object: 'subscription', livemode: false,
+        customer: { id: 'cus_existing', object: 'invoice' }, status: 'canceled',
       }],
       has_more: false,
     }],

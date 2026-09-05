@@ -39,10 +39,11 @@ function safeCheckoutUrl(value: string | null) {
   }
 }
 
-function expandableId(value: unknown) {
+function expandableCustomerId(value: unknown) {
   if (isStripeOpaqueId(value)) return value;
   if (
     typeof value === 'object' && value !== null && 'id' in value &&
+    'object' in value && value.object === 'customer' &&
     isStripeOpaqueId(value.id)
   ) return value.id;
   return null;
@@ -71,7 +72,7 @@ function hasOnlyTerminalSubscriptions(value: unknown, expectedCustomerId: string
       return isStripeOpaqueId(item.id) &&
         item.object === 'subscription' &&
         item.livemode === false &&
-        expandableId(item.customer) === expectedCustomerId &&
+        expandableCustomerId(item.customer) === expectedCustomerId &&
         typeof item.status === 'string' && TERMINAL_SUBSCRIPTION_STATUSES.has(item.status);
     });
 }
@@ -235,7 +236,7 @@ export class StripeBillingProvider implements BillingProvider {
       session.livemode !== false ||
       session.mode !== 'subscription' ||
       session.status !== 'open' ||
-      expandableId(session.customer) !== customerId ||
+      expandableCustomerId(session.customer) !== customerId ||
       session.metadata?.demoUserId !== user.id ||
       !Number.isSafeInteger(session.expires_at) ||
       session.expires_at !== Math.floor(attempt.expiresAt.getTime() / 1000)
