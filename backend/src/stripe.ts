@@ -231,6 +231,7 @@ export class StripeBillingProvider implements BillingProvider {
     if (!sessionUrl) throw new Error('Stripe did not return a safe Checkout URL');
     if (
       !isStripeOpaqueId(session.id) ||
+      session.object !== 'checkout.session' ||
       session.livemode !== false ||
       session.mode !== 'subscription' ||
       session.status !== 'open' ||

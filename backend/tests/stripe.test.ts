@@ -67,6 +67,7 @@ function harness(sessionUrl: string | null = null, customerId: string | null = n
   }));
   const session = {
     id: 'cs_test',
+    object: 'checkout.session',
     url: 'https://checkout.stripe.test/session',
     expires_at: Math.floor(attempt.expiresAt.getTime() / 1000),
     livemode: false,
@@ -581,6 +582,7 @@ describe('Stripe Checkout creation', () => {
   });
 
   it.each([
+    { object: 'invoice' },
     { id: '' },
     { id: 'c'.repeat(256) },
     { livemode: true },
