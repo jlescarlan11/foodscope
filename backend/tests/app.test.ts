@@ -64,6 +64,28 @@ describe('Foodscope API', () => {
     expect((await request(app).get('/api/products/search?q=milk&lang=es')).status).toBe(400);
   });
 
+  it('classifies malformed and oversized JSON as non-retryable client errors', async () => {
+    const setup = harness();
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    const malformed = await request(setup.app)
+      .post('/api/billing/checkout-session')
+      .set('content-type', 'application/json')
+      .send('{');
+    const oversized = await request(setup.app)
+      .post('/api/billing/checkout-session')
+      .set('content-type', 'application/json')
+      .send(JSON.stringify({ padding: 'x'.repeat(101 * 1024) }));
+
+    expect(malformed.status).toBe(400);
+    expect(malformed.body).toEqual({ error: 'Invalid JSON request' });
+    expect(oversized.status).toBe(413);
+    expect(oversized.body).toEqual({ error: 'Request body is too large' });
+    expect(setup.dependencies.billing!.createCheckout).not.toHaveBeenCalled();
+    expect(errorLog).not.toHaveBeenCalled();
+    errorLog.mockRestore();
+  });
+
   it('never sends nutrition to an inactive user', async () => {
     const response = await request(harness().app).get('/api/products/search?q=spread&lang=en');
     expect(response.status).toBe(200);

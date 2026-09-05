@@ -217,7 +217,16 @@ export function createApp(deps: AppDependencies) {
   app.use((_req, res) => res.status(404).json({ error: 'Not found' }));
   app.use((error: unknown, _req: Request, res: Response, next: NextFunction) => {
     void next;
-    void error;
+    if (typeof error === 'object' && error !== null && 'type' in error) {
+      if (error.type === 'entity.parse.failed') {
+        res.status(400).json({ error: 'Invalid JSON request' });
+        return;
+      }
+      if (error.type === 'entity.too.large') {
+        res.status(413).json({ error: 'Request body is too large' });
+        return;
+      }
+    }
     console.error('Unexpected request failure');
     res.status(500).json({ error: 'Unexpected server error' });
   });
