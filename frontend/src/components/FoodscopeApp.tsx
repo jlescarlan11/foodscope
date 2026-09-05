@@ -123,8 +123,7 @@ function isRecentSearchResponse(value: unknown): value is { searches: RecentSear
     const search = value as Record<string, unknown>;
     return typeof search.id === 'number' && Number.isSafeInteger(search.id) && search.id > 0 &&
       typeof search.query === 'string' && Boolean(search.query.trim()) && search.query.length <= 120 &&
-      typeof search.locale === 'string' && locales.includes(search.locale as Locale) &&
-      typeof search.createdAt === 'string';
+      typeof search.locale === 'string' && locales.includes(search.locale as Locale);
   });
 }
 

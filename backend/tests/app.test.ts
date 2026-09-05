@@ -545,6 +545,7 @@ describe('Foodscope API', () => {
       'nl',
     );
     expect(recent.body.searches[0]).toMatchObject({ query: 'oat milk', locale: 'nl' });
+    expect(recent.body.searches[0]).not.toHaveProperty('createdAt');
   });
 
   it('does not query history after disconnecting during the recent-search account read', async () => {

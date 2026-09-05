@@ -234,7 +234,9 @@ export function createApp(deps: AppDependencies) {
         return;
       }
       const searches = await deps.repository.getRecentSearches(user.id, 8);
-      res.json({ searches });
+      res.json({
+        searches: searches.map(({ id, query, locale }) => ({ id, query, locale })),
+      });
     }),
   );
 
