@@ -1,0 +1,37 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { describe, expect, it } from 'vitest';
+
+const css = readFileSync(resolve(process.cwd(), 'src/app/globals.css'), 'utf8');
+
+function luminance(hex: string) {
+  const channels = hex.match(/../g)!.map((value) => Number.parseInt(value, 16) / 255)
+    .map((value) => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
+  return 0.2126 * channels[0]! + 0.7152 * channels[1]! + 0.0722 * channels[2]!;
+}
+
+function contrast(foreground: string, background: string) {
+  const values = [luminance(foreground), luminance(background)].sort((a, b) => b - a);
+  return (values[0]! + 0.05) / (values[1]! + 0.05);
+}
+
+describe('accessible text colors', () => {
+  it('keeps normal muted text above the WCAG AA contrast threshold', () => {
+    const muted = css.match(/--muted:\s*#([0-9a-f]{6})/i)?.[1];
+    const paper = css.match(/--paper:\s*#([0-9a-f]{6})/i)?.[1];
+    expect(muted).toBeDefined();
+    expect(paper).toBeDefined();
+    expect(contrast(muted!, paper!)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(muted!, 'ffffff')).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it.each([
+    '.search-form input::placeholder',
+    '.empty',
+    '.brand',
+    'footer',
+  ])('uses the accessible muted color for %s', (selector) => {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    expect(css).toMatch(new RegExp(`${escaped}\\s*\\{[^}]*color:\\s*var\\(--muted\\)`));
+  });
+});
