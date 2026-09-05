@@ -110,6 +110,7 @@ describe('Foodscope API', () => {
 
   it('cancels provider work and skips history when the response connection closes', async () => {
     const setup = harness();
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     let startedSearch: (() => void) | undefined;
     const searchStarted = new Promise<void>((resolve) => { startedSearch = resolve; });
     let providerSignal: AbortSignal | undefined;
@@ -149,7 +150,9 @@ describe('Foodscope API', () => {
 
       await vi.waitFor(() => expect(providerSignal?.aborted).toBe(true));
       expect(setup.repository.saveSearch).not.toHaveBeenCalled();
+      expect(errorLog).not.toHaveBeenCalled();
     } finally {
+      errorLog.mockRestore();
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     }
   });
@@ -362,6 +365,23 @@ describe('Foodscope API', () => {
     expect(response.body).toEqual({
       error: 'Checkout is unavailable for the current subscription state',
     });
+  });
+
+  it('logs a value-free signal when Checkout creation fails unexpectedly', async () => {
+    const setup = harness();
+    vi.mocked(setup.dependencies.billing!.createCheckout)
+      .mockRejectedValueOnce(new Error('secret Stripe detail'));
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    const response = await request(setup.app)
+      .post('/api/billing/checkout-session')
+      .set('origin', setup.dependencies.config.frontendUrl);
+
+    expect(response.status).toBe(502);
+    expect(response.body).toEqual({ error: 'Unable to start Checkout' });
+    expect(errorLog).toHaveBeenCalledWith('Checkout provider failed');
+    expect(errorLog).not.toHaveBeenCalledWith(expect.stringContaining('secret Stripe detail'));
+    errorLog.mockRestore();
   });
 
   it('never sends nutrition to an inactive user', async () => {
@@ -585,9 +605,13 @@ describe('Foodscope API', () => {
   it('returns a safe upstream failure', async () => {
     const setup = harness();
     vi.mocked(setup.dependencies.products.search).mockRejectedValueOnce(new Error('secret upstream detail'));
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const response = await search(setup.app, 'milk', 'en');
     expect(response.status).toBe(502);
     expect(response.body).toEqual({ error: 'Product search is temporarily unavailable' });
+    expect(errorLog).toHaveBeenCalledWith('Product search provider failed');
+    expect(errorLog).not.toHaveBeenCalledWith(expect.stringContaining('secret upstream detail'));
+    errorLog.mockRestore();
   });
 
   it('forwards safe upstream backpressure without retrying in the API layer', async () => {

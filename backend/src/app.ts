@@ -171,6 +171,7 @@ export function createApp(deps: AppDependencies) {
       try {
         results = await deps.products.search(parsed.data.q, parsed.data.lang, controller.signal);
       } catch (error) {
+        if (controller.signal.aborted) return;
         if (error instanceof ProductProviderRateLimitError) {
           if (error.retryAfterSeconds !== undefined) {
             res.set('Retry-After', String(error.retryAfterSeconds));
@@ -178,6 +179,7 @@ export function createApp(deps: AppDependencies) {
           res.status(503).json({ error: 'Product search is temporarily unavailable' });
           return;
         }
+        console.error('Product search provider failed');
         res.status(502).json({ error: 'Product search is temporarily unavailable' });
         return;
       }
@@ -267,6 +269,7 @@ export function createApp(deps: AppDependencies) {
           res.status(409).json({ error: 'Checkout is unavailable for the current subscription state' });
           return;
         }
+        console.error('Checkout provider failed');
         res.status(502).json({ error: 'Unable to start Checkout' });
       }
     }),
