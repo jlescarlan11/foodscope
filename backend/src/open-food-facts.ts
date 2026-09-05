@@ -6,6 +6,7 @@ type UnknownRecord = Record<string, unknown>;
 const MAX_RESPONSE_BYTES = 1_000_000;
 const MAX_PRODUCTS = 20;
 const MAX_PRODUCT_TEXT_CHARACTERS = 500;
+const MAX_RETRY_AFTER_SECONDS = 3_600;
 
 const isRecord = (value: unknown): value is UnknownRecord =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -64,7 +65,7 @@ export class ProductProviderRateLimitError extends Error {
       retryAfterSeconds !== undefined &&
       retryAfterSeconds >= 0
     ) {
-      this.retryAfterSeconds = retryAfterSeconds;
+      this.retryAfterSeconds = Math.min(retryAfterSeconds, MAX_RETRY_AFTER_SECONDS);
     }
   }
 }

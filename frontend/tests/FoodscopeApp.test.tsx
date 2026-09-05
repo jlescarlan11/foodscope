@@ -846,7 +846,13 @@ describe('Foodscope locale switching', () => {
     expect(screen.queryByText('Searching…')).not.toBeInTheDocument();
   });
 
-  it('honors product-search Retry-After before re-enabling search actions', async () => {
+  it.each([
+    ['37', 37_000],
+    ['7200', 3_600_000],
+  ])('honors product-search Retry-After %s before re-enabling search actions', async (
+    retryAfter,
+    backoffMs,
+  ) => {
     vi.useFakeTimers();
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
@@ -862,7 +868,7 @@ describe('Foodscope locale switching', () => {
       return {
         ok: false,
         status: 503,
-        headers: new Headers({ 'Retry-After': '37' }),
+        headers: new Headers({ 'Retry-After': retryAfter }),
       } as Response;
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -880,7 +886,7 @@ describe('Foodscope locale switching', () => {
     expect(fetchMock.mock.calls.filter(([url]) =>
       String(url).includes('/api/products/search'))).toHaveLength(1);
 
-    await act(async () => vi.advanceTimersByTimeAsync(36_999));
+    await act(async () => vi.advanceTimersByTimeAsync(backoffMs - 1));
     expect(submit).toBeDisabled();
     await act(async () => vi.advanceTimersByTimeAsync(1));
     expect(submit).toBeEnabled();

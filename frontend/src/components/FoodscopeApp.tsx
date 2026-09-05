@@ -73,8 +73,8 @@ function responseRetryAfterSeconds(response: Response) {
   const value = response.headers?.get?.('retry-after');
   if (!value || !/^\d+$/.test(value)) return undefined;
   const seconds = Number(value);
-  return Number.isSafeInteger(seconds) && seconds >= 1 && seconds <= 3_600
-    ? seconds
+  return Number.isSafeInteger(seconds) && seconds >= 1
+    ? Math.min(seconds, 3_600)
     : undefined;
 }
 
