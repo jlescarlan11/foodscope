@@ -15,6 +15,24 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+function wait(ms: number, signal: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    if (signal.aborted) {
+      reject(signal.reason);
+      return;
+    }
+    const onAbort = () => {
+      window.clearTimeout(timeout);
+      reject(signal.reason);
+    };
+    const timeout = window.setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
 function ProductCard({ product, messages }: { product: Product; messages: Messages }) {
   return (
     <article className="product-card">
@@ -55,7 +73,6 @@ export function FoodscopeApp() {
   const recentSequence = useRef(0);
   const messages = dictionaries[locale];
 
-  const refreshAccount = () => api<UserState>('/api/user').then(setUser).catch(() => setError(true));
   const refreshRecent = (signal?: AbortSignal) => {
     const requestId = ++recentSequence.current;
     return api<{ searches: RecentSearch[] }>(
@@ -67,8 +84,37 @@ export function FoodscopeApp() {
   };
 
   useEffect(() => {
-    void Promise.all([refreshAccount(), refreshRecent()]);
-    return () => searchController.current?.abort();
+    const controller = new AbortController();
+    const currentUrl = new URL(window.location.href);
+    const returnedFromCheckout = currentUrl.searchParams.get('checkout') === 'success';
+    if (returnedFromCheckout) {
+      currentUrl.searchParams.delete('checkout');
+      window.history.replaceState(null, '', `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`);
+    }
+
+    const loadAccount = async () => {
+      const delays = returnedFromCheckout ? [0, 1_000, 2_000, 4_000, 8_000] : [0];
+      let loaded = false;
+      for (const delayMs of delays) {
+        try {
+          if (delayMs) await wait(delayMs, controller.signal);
+          const account = await api<UserState>('/api/user', { signal: controller.signal });
+          if (controller.signal.aborted) return;
+          loaded = true;
+          setUser(account);
+          if (account.nutritionAccess) return;
+        } catch {
+          if (controller.signal.aborted) return;
+        }
+      }
+      if (!loaded) setError(true);
+    };
+
+    void Promise.all([loadAccount(), refreshRecent(controller.signal)]);
+    return () => {
+      controller.abort();
+      searchController.current?.abort();
+    };
   }, []);
   useEffect(() => { document.documentElement.lang = locale; }, [locale]);
 

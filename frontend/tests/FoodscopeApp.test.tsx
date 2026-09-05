@@ -10,6 +10,8 @@ describe('Foodscope locale switching', () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+    vi.useRealTimers();
+    window.history.replaceState(null, '', '/');
   });
 
   it('updates application-controlled text and uses the chosen locale for search', async () => {
@@ -91,5 +93,30 @@ describe('Foodscope locale switching', () => {
 
     expect(await screen.findByText('44 kcal')).toBeInTheDocument();
     expect(screen.getByText('1.5 g')).toBeInTheDocument();
+  });
+
+  it('rechecks server entitlement after Checkout without trusting the success URL', async () => {
+    vi.useFakeTimers();
+    window.history.replaceState(null, '', '/?checkout=success');
+    let accountReads = 0;
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('/api/searches/recent')) {
+        return { ok: true, json: async () => ({ searches: [] }) } as Response;
+      }
+      accountReads += 1;
+      return {
+        ok: true,
+        json: async () => ({ nutritionAccess: accountReads >= 3 }),
+      } as Response;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<FoodscopeApp />);
+    await act(async () => vi.advanceTimersByTimeAsync(3_000));
+
+    expect(screen.getByText('Nutrition unlocked')).toBeInTheDocument();
+    expect(accountReads).toBe(3);
+    expect(window.location.search).toBe('');
   });
 });
