@@ -69,7 +69,7 @@ the backend; the placeholder is rejected so anonymous traffic cannot be sent acc
 | `STRIPE_PRICE_ID` | Backend | Recurring monthly Price ID |
 | `OPEN_FOOD_FACTS_USER_AGENT` | Backend | Identifiable User-Agent required for responsible API access |
 
-The backend and frontend receive separate local env copies because workspace tools run from their package directories. Deployed environments should set variables through the host's protected environment configuration and expose only `NEXT_PUBLIC_API_URL` to the browser. Missing or structurally invalid MySQL configuration fails startup without printing its value. Billing is disabled when all Stripe values are absent; partial configuration fails startup. The backend also refuses to start Stripe with a live-mode secret or restricted key.
+The backend and frontend receive separate local env copies because workspace tools run from their package directories. Deployed environments should set variables through the host's protected environment configuration and expose only `NEXT_PUBLIC_API_URL` to the browser. Missing, structurally invalid, or unreachable MySQL configuration fails before the API listens without printing its value. Billing is disabled when all Stripe values are absent; partial configuration fails startup. The backend also refuses to start Stripe with a live-mode secret or restricted key.
 
 ## Database
 

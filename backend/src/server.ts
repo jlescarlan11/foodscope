@@ -14,12 +14,32 @@ const app = createApp({
   billing: createBillingProvider(config, repository),
 });
 
-const server = app.listen(config.port, () => {
-  console.log(`Foodscope API listening on http://localhost:${config.port}`);
-});
+async function start() {
+  try {
+    await prisma.$connect();
+  } catch {
+    console.error('Database connection failed during startup');
+    process.exitCode = 1;
+    return;
+  }
 
-const shutdown = () => {
-  server.close(() => void prisma.$disconnect());
-};
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
+  const server = app.listen(config.port, () => {
+    console.log(`Foodscope API listening on http://localhost:${config.port}`);
+  });
+  server.once('error', () => {
+    console.error('Foodscope API failed to listen');
+    process.exitCode = 1;
+    void prisma.$disconnect();
+  });
+
+  let shuttingDown = false;
+  const shutdown = () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    server.close(() => void prisma.$disconnect());
+  };
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+}
+
+void start();
