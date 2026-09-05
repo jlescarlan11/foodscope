@@ -153,7 +153,8 @@ The behavioral suite covers invalid search input, Open Food Facts normalization 
 - Browser API calls have bounded, workflow-specific deadlines; stalled account, search, and Checkout
   requests return to an explicit retry path instead of leaving controls permanently busy.
 - The frontend sets framing, base/form, referrer, MIME-sniffing, and unused-capability restrictions on
-  every document response; transport security remains the deployment host's responsibility.
+  every document response, and keeps keyboard focus indicators distinct across its light and dark
+  surfaces; transport security remains the deployment host's responsibility.
 
 ## Intentional simplifications and known limitations
 

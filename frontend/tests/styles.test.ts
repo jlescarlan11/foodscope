@@ -43,6 +43,20 @@ describe('accessible text colors', () => {
     expect(reducedMotion).toContain('animation: none');
   });
 
+  it('keeps the keyboard focus indicator distinct from every adjacent surface', () => {
+    const focus = css.match(/:focus-visible[^{}]*\{[^}]*outline:\s*3px solid #([0-9a-f]{6})/i)?.[1];
+    const paper = css.match(/--paper:\s*#([0-9a-f]{6})/i)?.[1];
+    const cream = css.match(/--cream:\s*#([0-9a-f]{6})/i)?.[1];
+    const ink = css.match(/--ink:\s*#([0-9a-f]{6})/i)?.[1];
+    expect(focus).toBeDefined();
+    expect(paper).toBeDefined();
+    expect(cream).toBeDefined();
+    expect(ink).toBeDefined();
+    for (const background of ['ffffff', paper!, cream!, ink!]) {
+      expect(contrast(focus!, background)).toBeGreaterThanOrEqual(3);
+    }
+  });
+
   it.each([
     '.recent button',
     '.brand',
