@@ -75,6 +75,7 @@ export function FoodscopeApp() {
   const [checkoutCancelled, setCheckoutCancelled] = useState(false);
   const searchSequence = useRef(0);
   const searchController = useRef<AbortController | null>(null);
+  const activeSearchKey = useRef<string | null>(null);
   const recentSequence = useRef(0);
   const accountSequence = useRef(0);
   const accountController = useRef<AbortController | null>(null);
@@ -140,10 +141,13 @@ export function FoodscopeApp() {
   async function runSearch(term: string, searchLocale: Locale = locale) {
     const clean = term.trim();
     if (!clean) return;
+    const searchKey = `${searchLocale}\u0000${clean}`;
+    if (activeSearchKey.current === searchKey) return;
     const requestId = ++searchSequence.current;
     searchController.current?.abort();
     const controller = new AbortController();
     searchController.current = controller;
+    activeSearchKey.current = searchKey;
     setQuery(clean); setProducts(null); setLoading(true); setError(false);
     try {
       const result = await api<{ products: Product[] }>(
@@ -161,6 +165,7 @@ export function FoodscopeApp() {
       if (requestId === searchSequence.current) {
         setLoading(false);
         searchController.current = null;
+        activeSearchKey.current = null;
       }
     }
   }
@@ -169,6 +174,7 @@ export function FoodscopeApp() {
     searchSequence.current += 1;
     searchController.current?.abort();
     searchController.current = null;
+    activeSearchKey.current = null;
     setLoading(false); setProducts(null); setError(false); setLocale(nextLocale);
   }
 

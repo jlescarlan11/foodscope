@@ -83,6 +83,35 @@ describe('Foodscope locale switching', () => {
     expect(screen.getByRole('heading', { name: 'Neu' })).toBeInTheDocument();
   });
 
+  it('deduplicates repeated activation of the same in-flight recent search', async () => {
+    let resolveSearch!: (response: Response) => void;
+    const pendingSearch = new Promise<Response>((resolve) => { resolveSearch = resolve; });
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('/api/user')) {
+        return { ok: true, json: async () => ({ nutritionAccess: false }) } as Response;
+      }
+      if (url.includes('/api/searches/recent')) {
+        return { ok: true, json: async () => ({ searches: [
+          { id: 1, query: 'oats', locale: 'en', createdAt: '' },
+        ] }) } as Response;
+      }
+      return pendingSearch;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<FoodscopeApp />);
+
+    const recentSearch = await screen.findByRole('button', { name: 'oats' });
+    await userEvent.dblClick(recentSearch);
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/api/products/search')))
+      .toHaveLength(1);
+
+    await act(async () => resolveSearch({
+      ok: true,
+      json: async () => ({ products: [] }),
+    } as Response));
+  });
+
   it('renders the explicit normalized nutrition value and unit', async () => {
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
