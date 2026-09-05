@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import React, { FormEvent, useEffect, useState } from 'react';
+import React, { FormEvent, useEffect, useRef, useState } from 'react';
 import { dictionaries, locales, type Locale, type Messages } from '@/i18n';
 import type { Nutrition, Product, RecentSearch, UserState } from '@/types';
 
@@ -49,24 +49,61 @@ export function FoodscopeApp() {
   const [loading, setLoading] = useState(false);
   const [subscribing, setSubscribing] = useState(false);
   const [error, setError] = useState(false);
+  const searchSequence = useRef(0);
+  const searchController = useRef<AbortController | null>(null);
+  const recentSequence = useRef(0);
   const messages = dictionaries[locale];
 
   const refreshAccount = () => api<UserState>('/api/user').then(setUser).catch(() => setError(true));
-  const refreshRecent = () => api<{ searches: RecentSearch[] }>('/api/searches/recent').then(({ searches }) => setRecent(searches)).catch(() => undefined);
+  const refreshRecent = (signal?: AbortSignal) => {
+    const requestId = ++recentSequence.current;
+    return api<{ searches: RecentSearch[] }>(
+      '/api/searches/recent',
+      signal ? { signal } : undefined,
+    ).then(({ searches }) => {
+      if (requestId === recentSequence.current) setRecent(searches);
+    }).catch(() => undefined);
+  };
 
-  useEffect(() => { void Promise.all([refreshAccount(), refreshRecent()]); }, []);
+  useEffect(() => {
+    void Promise.all([refreshAccount(), refreshRecent()]);
+    return () => searchController.current?.abort();
+  }, []);
   useEffect(() => { document.documentElement.lang = locale; }, [locale]);
 
   async function runSearch(term: string, searchLocale: Locale = locale) {
     const clean = term.trim();
     if (!clean) return;
-    setQuery(clean); setLoading(true); setError(false);
+    const requestId = ++searchSequence.current;
+    searchController.current?.abort();
+    const controller = new AbortController();
+    searchController.current = controller;
+    setQuery(clean); setProducts(null); setLoading(true); setError(false);
     try {
-      const result = await api<{ products: Product[] }>(`/api/products/search?q=${encodeURIComponent(clean)}&lang=${searchLocale}`);
+      const result = await api<{ products: Product[] }>(
+        `/api/products/search?q=${encodeURIComponent(clean)}&lang=${searchLocale}`,
+        { signal: controller.signal },
+      );
+      if (requestId !== searchSequence.current) return;
       setProducts(result.products);
-      await refreshRecent();
-    } catch { setError(true); setProducts(null); }
-    finally { setLoading(false); }
+      await refreshRecent(controller.signal);
+    } catch (searchError) {
+      if (requestId === searchSequence.current && !(searchError instanceof DOMException && searchError.name === 'AbortError')) {
+        setError(true); setProducts(null);
+      }
+    } finally {
+      if (requestId === searchSequence.current) {
+        setLoading(false);
+        searchController.current = null;
+      }
+    }
+  }
+
+  function changeLocale(nextLocale: Locale) {
+    searchSequence.current += 1;
+    searchController.current?.abort();
+    searchController.current = null;
+    setLoading(false); setProducts(null); setError(false); setLocale(nextLocale);
   }
 
   function submit(event: FormEvent) { event.preventDefault(); void runSearch(query); }
@@ -82,7 +119,7 @@ export function FoodscopeApp() {
     <main>
       <header className="topbar">
         <a href="#content" className="wordmark" aria-label="Foodscope home"><span className="logo-mark">f</span>foodscope</a>
-        <label className="locale-control"><span>{messages.language}</span><select value={locale} onChange={(event) => setLocale(event.target.value as Locale)}>{locales.map((item) => <option key={item} value={item}>{localeNames[item]}</option>)}</select></label>
+        <label className="locale-control"><span>{messages.language}</span><select value={locale} onChange={(event) => changeLocale(event.target.value as Locale)}>{locales.map((item) => <option key={item} value={item}>{localeNames[item]}</option>)}</select></label>
       </header>
 
       <section className="hero" id="content">
