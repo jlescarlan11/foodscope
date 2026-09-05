@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, render, screen } from '@testing-library/react';
+import { act, cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FoodscopeApp } from '@/components/FoodscopeApp';
@@ -7,7 +7,10 @@ import { FoodscopeApp } from '@/components/FoodscopeApp';
 vi.mock('next/image', () => ({ default: ({ src }: { src: string }) => <span data-image-src={src} /> }));
 
 describe('Foodscope locale switching', () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
 
   it('updates application-controlled text and uses the chosen locale for search', async () => {
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
@@ -65,5 +68,28 @@ describe('Foodscope locale switching', () => {
     } as Response));
     expect(screen.queryByRole('heading', { name: 'Old' })).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Neu' })).toBeInTheDocument();
+  });
+
+  it('renders the explicit normalized nutrition value and unit', async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      const body = url.includes('/api/user')
+        ? { nutritionAccess: true }
+        : url.includes('/api/searches/recent')
+          ? { searches: [] }
+          : { products: [{
+              id: 'nutrition', name: 'Oats', brand: null, image: null, nutritionLocked: false,
+              nutrition: { energyKcal: { value: 44, unit: 'kcal' }, fat: { value: 1.5, unit: 'g' } },
+            }] };
+      return { ok: true, json: async () => body } as Response;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<FoodscopeApp />);
+
+    await userEvent.type(screen.getByLabelText('Search products'), 'oats');
+    await userEvent.click(screen.getByRole('button', { name: /^Search/ }));
+
+    expect(await screen.findByText('44 kcal')).toBeInTheDocument();
+    expect(screen.getByText('1.5 g')).toBeInTheDocument();
   });
 });

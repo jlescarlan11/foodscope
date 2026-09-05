@@ -29,9 +29,10 @@ function ProductCard({ product, messages }: { product: Product; messages: Messag
         ) : (
           <div className="nutrition">
             <p className="nutrition-title">{messages.nutrition}</p>
-            {product.nutrition && nutritionKeys.filter((key) => product.nutrition?.[key] !== undefined).map((key) => (
-              <div className="nutrient" key={key}><span>{messages[key]}</span><strong>{product.nutrition?.[key]} {key === 'energyKcal' ? 'kcal' : 'g'}</strong></div>
-            ))}
+            {product.nutrition && nutritionKeys.filter((key) => product.nutrition?.[key] !== undefined).map((key) => {
+              const nutrient = product.nutrition?.[key];
+              return nutrient && <div className="nutrient" key={key}><span>{messages[key]}</span><strong>{nutrient.value} {nutrient.unit}</strong></div>;
+            })}
             {!product.nutrition && <p className="muted">{messages.unavailable}</p>}
           </div>
         )}

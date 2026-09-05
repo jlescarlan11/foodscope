@@ -8,7 +8,19 @@ describe('Open Food Facts normalization', () => {
       nutriments: { 'energy-kcal_100g': 44, 'fat_100g': 1.5, ignored: 99 },
     }, 'de')).toEqual({
       id: '123', name: 'Haferdrink', brand: 'Good Foods', image: null,
-      nutrition: { energyKcal: 44, fat: 1.5 },
+      nutrition: { energyKcal: { value: 44, unit: 'kcal' }, fat: { value: 1.5, unit: 'g' } },
+    });
+  });
+
+  it('rejects negative nutrition and untrusted image URLs as unavailable', () => {
+    expect(normalizeProduct({
+      code: 'safe',
+      image_front_url: 'javascript:alert(1)',
+      image_url: 'https://tracker.example/product.jpg',
+      nutriments: { 'fat_100g': -1, 'sugars_100g': 0 },
+    }, 'en')).toEqual({
+      id: 'safe', name: null, brand: null, image: null,
+      nutrition: { sugars: { value: 0, unit: 'g' } },
     });
   });
 
@@ -41,6 +53,18 @@ describe('Open Food Facts normalization', () => {
 
     await expect(provider.search('milk', 'en')).rejects.toMatchObject({ retryAfterSeconds: 17 });
     expect(fetcher).toHaveBeenCalledOnce();
+  });
+
+  it('removes duplicate product IDs from malformed upstream results', async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ products: [
+      { code: 'duplicate', product_name: 'First' },
+      { code: 'duplicate', product_name: 'Second' },
+    ] }), { status: 200 }));
+    const provider = new OpenFoodFactsProvider('FoodscopeTest/1.0', fetcher);
+
+    await expect(provider.search('milk', 'en')).resolves.toEqual([{
+      id: 'duplicate', name: 'First', brand: null, image: null,
+    }]);
   });
 
   it('does not hold the request open for a long gateway Retry-After', async () => {

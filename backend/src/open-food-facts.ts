@@ -11,18 +11,33 @@ const textValue = (value: unknown) =>
   typeof value === 'string' && value.trim() ? value.trim() : undefined;
 
 const numberValue = (value: unknown) =>
-  typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+  typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
 
-const nutritionFields: Array<[keyof Nutrition, string]> = [
-  ['energyKcal', 'energy-kcal_100g'],
-  ['fat', 'fat_100g'],
-  ['saturatedFat', 'saturated-fat_100g'],
-  ['carbohydrates', 'carbohydrates_100g'],
-  ['sugars', 'sugars_100g'],
-  ['protein', 'proteins_100g'],
-  ['salt', 'salt_100g'],
-  ['sodium', 'sodium_100g'],
+const nutritionFields: Array<[keyof Nutrition, string, 'g' | 'kcal']> = [
+  ['energyKcal', 'energy-kcal_100g', 'kcal'],
+  ['fat', 'fat_100g', 'g'],
+  ['saturatedFat', 'saturated-fat_100g', 'g'],
+  ['carbohydrates', 'carbohydrates_100g', 'g'],
+  ['sugars', 'sugars_100g', 'g'],
+  ['protein', 'proteins_100g', 'g'],
+  ['salt', 'salt_100g', 'g'],
+  ['sodium', 'sodium_100g', 'g'],
 ];
+
+function imageValue(value: unknown) {
+  const text = textValue(value);
+  if (!text) return undefined;
+  try {
+    const url = new URL(text);
+    if (url.protocol !== 'https:') return undefined;
+    if (url.hostname !== 'images.openfoodfacts.org' && !url.hostname.endsWith('.openfoodfacts.org')) {
+      return undefined;
+    }
+    return url.toString();
+  } catch {
+    return undefined;
+  }
+}
 
 export class ProductProviderRateLimitError extends Error {
   constructor(readonly retryAfterSeconds?: number) {
@@ -47,13 +62,13 @@ export function normalizeProduct(raw: unknown, locale: Locale): Omit<Product, 'n
   const localizedName = textValue(raw[`product_name_${locale}`]);
   const genericName = textValue(raw.product_name);
   const brands = textValue(raw.brands);
-  const image = textValue(raw.image_front_url) ?? textValue(raw.image_url);
+  const image = imageValue(raw.image_front_url) ?? imageValue(raw.image_url);
   const nutriments = isRecord(raw.nutriments) ? raw.nutriments : {};
   const nutrition: Nutrition = {};
 
-  for (const [localKey, upstreamKey] of nutritionFields) {
+  for (const [localKey, upstreamKey, unit] of nutritionFields) {
     const value = numberValue(nutriments[upstreamKey]);
-    if (value !== undefined) nutrition[localKey] = value;
+    if (value !== undefined) nutrition[localKey] = { value, unit };
   }
 
   return {
@@ -108,8 +123,14 @@ export class OpenFoodFactsProvider implements ProductProvider {
     if (!isRecord(payload) || !Array.isArray(payload.products)) {
       throw new Error('Open Food Facts returned malformed data');
     }
-    return payload.products
-      .map((product) => normalizeProduct(product, locale))
-      .filter((product): product is Omit<Product, 'nutritionLocked'> => product !== null);
+    const products: Array<Omit<Product, 'nutritionLocked'>> = [];
+    const seenIds = new Set<string>();
+    for (const rawProduct of payload.products) {
+      const product = normalizeProduct(rawProduct, locale);
+      if (!product || seenIds.has(product.id)) continue;
+      seenIds.add(product.id);
+      products.push(product);
+    }
+    return products;
   }
 }

@@ -23,7 +23,7 @@ Express API
   └── Prisma → MySQL (demo user, subscription state, recent searches)
 ```
 
-The browser never calls Open Food Facts or Stripe APIs directly. Express validates the locale/query, normalizes the small Open Food Facts response, loads subscription state from MySQL, and removes the complete `nutrition` property unless the stored status is `active` or `trialing`.
+The browser never calls Open Food Facts or Stripe APIs directly. Express validates the locale/query, normalizes the small Open Food Facts response, loads subscription state from MySQL, and removes the complete `nutrition` property unless the stored status is `active` or `trialing`. Every returned nutrient carries its explicit per-100-g value and unit.
 
 ## Prerequisites
 

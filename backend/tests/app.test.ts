@@ -33,7 +33,7 @@ function harness(status = 'inactive') {
   };
   const product = {
     id: '3017620422003', name: 'Hazelnut spread', brand: null, image: null,
-    nutrition: { fat: 30.9, sugars: 56.3 },
+    nutrition: { fat: { value: 30.9, unit: 'g' as const }, sugars: { value: 56.3, unit: 'g' as const } },
   };
   const event = { id: 'evt_test', type: 'customer.subscription.updated', data: { object: { id: 'sub_test', status: 'canceled' } } } as unknown as Stripe.Event;
   const currentSubscription = { id: 'sub_test', status: 'active' } as Stripe.Subscription;
@@ -68,7 +68,10 @@ describe('Foodscope API', () => {
 
   it('sends only available normalized nutrition to an active user', async () => {
     const response = await request(harness('active').app).get('/api/products/search?q=spread&lang=en');
-    expect(response.body.products[0]).toMatchObject({ nutritionLocked: false, nutrition: { fat: 30.9, sugars: 56.3 } });
+    expect(response.body.products[0]).toMatchObject({
+      nutritionLocked: false,
+      nutrition: { fat: { value: 30.9, unit: 'g' }, sugars: { value: 56.3, unit: 'g' } },
+    });
   });
 
   it('persists valid searches and returns recent entries', async () => {

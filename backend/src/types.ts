@@ -1,15 +1,17 @@
 import type Stripe from 'stripe';
 import type { Locale } from './constants.js';
 
+export type NutritionValue = { value: number; unit: 'g' | 'kcal' };
+
 export type Nutrition = Partial<{
-  energyKcal: number;
-  fat: number;
-  saturatedFat: number;
-  carbohydrates: number;
-  sugars: number;
-  protein: number;
-  salt: number;
-  sodium: number;
+  energyKcal: NutritionValue;
+  fat: NutritionValue;
+  saturatedFat: NutritionValue;
+  carbohydrates: NutritionValue;
+  sugars: NutritionValue;
+  protein: NutritionValue;
+  salt: NutritionValue;
+  sodium: NutritionValue;
 }>;
 
 export type Product = {
