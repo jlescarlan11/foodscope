@@ -24,7 +24,7 @@ function subscription(status: Stripe.Subscription.Status) {
         id: 'price_test', object: 'price', livemode: false, type: 'recurring',
         recurring: { interval: 'month', interval_count: 1 },
       },
-    }] },
+    }], has_more: false },
   } as unknown as Stripe.Subscription;
 }
 

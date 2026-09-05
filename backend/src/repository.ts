@@ -17,9 +17,12 @@ import type { Repository } from './types.js';
 
 function subscriptionPeriodEnd(subscription: Stripe.Subscription, stripePriceId: string | undefined) {
   if (!stripePriceId) return null;
-  const items = isRecord(subscription.items) && Array.isArray(subscription.items.data)
-    ? subscription.items.data
-    : [];
+  if (
+    !isRecord(subscription.items) ||
+    subscription.items.has_more !== false ||
+    !Array.isArray(subscription.items.data)
+  ) return null;
+  const items = subscription.items.data;
   const configuredItems = items.filter((item) => {
     if (!isRecord(item)) return false;
     const price: unknown = item.price;

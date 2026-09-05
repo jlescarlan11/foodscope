@@ -20,7 +20,7 @@ function subscription(status: Stripe.Subscription.Status) {
         id: 'price_test', object: 'price', livemode: false, type: 'recurring',
         recurring: { interval: 'month', interval_count: 1 },
       },
-    }] },
+    }], has_more: false },
   } as unknown as Stripe.Subscription;
 }
 
@@ -442,7 +442,7 @@ describe('Stripe webhook repository', () => {
           recurring: { interval: 'year', interval_count: 1 },
         },
       },
-    ] };
+    ], has_more: false };
 
     await createBillingRepository(database).processStripeEvent(
       subscriptionEvent('evt_multiple_prices'),
@@ -480,7 +480,7 @@ describe('Stripe webhook repository', () => {
         id: 'price_test', object: 'price', livemode: false, type: 'recurring',
         recurring: { interval: 'month', interval_count: 1 },
       },
-    })) };
+    })), has_more: false };
 
     await createBillingRepository(database).processStripeEvent(
       subscriptionEvent('evt_duplicate_plan_items'),
@@ -689,6 +689,7 @@ describe('Stripe webhook repository', () => {
   it.each([
     undefined,
     { data: [] },
+    { ...subscription('active').items, has_more: true },
     { data: [{ current_period_end: Number.POSITIVE_INFINITY }] },
     { data: [{
       object: 'subscription_item',
