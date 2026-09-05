@@ -40,16 +40,16 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run db:generate
+      - name: Replay migrations on disposable MySQL
+        run: npm run db:migrate -w backend
+        env:
+          DATABASE_URL: mysql://app:app@127.0.0.1:3306/foodscope_ci
       - run: npm test
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run build
         env:
           NEXT_PUBLIC_API_URL: https://api.example.test
-      - name: Replay migrations on disposable MySQL
-        run: npm run db:migrate -w backend
-        env:
-          DATABASE_URL: mysql://app:app@127.0.0.1:3306/foodscope_ci
       - name: Verify repository concurrency and ordering
         run: npm run test -w backend -- --run tests/repository.integration.test.ts
         env:
