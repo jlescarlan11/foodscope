@@ -5,6 +5,7 @@ describe('Open Food Facts normalization', () => {
   it('prefers the selected localized name and maps available nutrition', () => {
     expect(normalizeProduct({
       code: '123', product_name: 'Generic', product_name_de: 'Haferdrink', brands: 'Good Foods',
+      product_quantity_unit: 'g',
       nutriments: { 'energy-kcal_100g': 44, 'fat_100g': 1.5, ignored: 99 },
     }, 'de')).toEqual({
       id: '123', name: 'Haferdrink', brand: 'Good Foods', image: null,
@@ -17,6 +18,7 @@ describe('Open Food Facts normalization', () => {
       code: 'safe',
       image_front_url: 'javascript:alert(1)',
       image_url: 'https://tracker.example/product.jpg',
+      product_quantity_unit: 'g',
       nutriments: {
         'energy-kcal_100g': 1_001,
         'fat_100g': -1,
@@ -28,6 +30,19 @@ describe('Open Food Facts normalization', () => {
       nutrition: { sugars: { value: 0, unit: 'g' } },
     });
   });
+
+  it.each(['ml', undefined])(
+    'treats %s product-basis nutrition as unavailable instead of per 100 g',
+    (productQuantityUnit) => {
+      expect(normalizeProduct({
+        code: 'liquid-or-unknown',
+        product_quantity_unit: productQuantityUnit,
+        nutriments: { 'energy-kcal_100g': 44, 'fat_100g': 1.5 },
+      }, 'en')).toEqual({
+        id: 'liquid-or-unknown', name: null, brand: null, image: null,
+      });
+    },
+  );
 
   it('falls back to the generic name and tolerates missing fields', () => {
     expect(normalizeProduct({ code: '456', product_name: 'Generic only' }, 'fr')).toEqual({
@@ -64,6 +79,7 @@ describe('Open Food Facts normalization', () => {
       'brands',
       'image_front_url',
       'image_url',
+      'product_quantity_unit',
       'nutriments',
     ]);
     expect(fetcher.mock.calls[0]?.[1]?.headers).toMatchObject({ 'Accept-Language': 'fr' });
