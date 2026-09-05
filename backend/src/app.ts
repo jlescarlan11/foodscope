@@ -6,6 +6,7 @@ import { z } from 'zod';
 import type { AppConfig } from './config.js';
 import { isActiveSubscription, NUTRITION_RULES, SUPPORTED_LOCALES } from './constants.js';
 import { ProductProviderRateLimitError } from './open-food-facts.js';
+import { NutritionAccessAlreadyActiveError } from './errors.js';
 import type { BillingProvider, Nutrition, ProductProvider, Repository } from './types.js';
 
 export type AppDependencies = {
@@ -222,7 +223,11 @@ export function createApp(deps: AppDependencies) {
       }
       try {
         res.status(201).json(await deps.billing.createCheckout(user));
-      } catch {
+      } catch (error) {
+        if (error instanceof NutritionAccessAlreadyActiveError) {
+          res.status(409).json({ error: 'The demo user already has nutrition access' });
+          return;
+        }
         res.status(502).json({ error: 'Unable to start Checkout' });
       }
     }),

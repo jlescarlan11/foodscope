@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp, type AppDependencies } from '../src/app.js';
 import { DEMO_USER_ID, type Locale } from '../src/constants.js';
 import { ProductProviderRateLimitError } from '../src/open-food-facts.js';
+import { NutritionAccessAlreadyActiveError } from '../src/errors.js';
 import type { DemoUser, RecentSearch, Repository } from '../src/types.js';
 
 const baseUser: DemoUser = {
@@ -132,6 +133,19 @@ describe('Foodscope API', () => {
     expect(response.status).toBe(201);
     expect(response.body).toEqual({ url: 'https://checkout.stripe.test/session' });
     expect(setup.dependencies.billing!.createCheckout).toHaveBeenCalledOnce();
+  });
+
+  it('returns a conflict when entitlement activates during Checkout creation', async () => {
+    const setup = harness();
+    vi.mocked(setup.dependencies.billing!.createCheckout)
+      .mockRejectedValueOnce(new NutritionAccessAlreadyActiveError());
+
+    const response = await request(setup.app)
+      .post('/api/billing/checkout-session')
+      .set('origin', setup.dependencies.config.frontendUrl);
+
+    expect(response.status).toBe(409);
+    expect(response.body).toEqual({ error: 'The demo user already has nutrition access' });
   });
 
   it('never sends nutrition to an inactive user', async () => {

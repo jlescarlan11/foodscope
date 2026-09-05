@@ -3,6 +3,7 @@ import type Stripe from 'stripe';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { DEMO_USER_EMAIL, DEMO_USER_ID } from '../src/constants.js';
 import { createRepository } from '../src/repository.js';
+import { NutritionAccessAlreadyActiveError } from '../src/errors.js';
 
 const testDatabaseUrl = process.env.TEST_DATABASE_URL;
 const integration = describe.runIf(Boolean(testDatabaseUrl));
@@ -185,6 +186,6 @@ integration('Repository with MySQL', () => {
       data: { subscriptionStatus: 'active' },
     });
     await expect(subject.getOrCreateCheckoutAttempt(DEMO_USER_ID))
-      .rejects.toThrow('already has nutrition access');
+      .rejects.toBeInstanceOf(NutritionAccessAlreadyActiveError);
   });
 });
