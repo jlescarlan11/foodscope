@@ -36,6 +36,10 @@ export function createApp(deps: AppDependencies) {
   app.disable('x-powered-by');
   app.use(helmet());
   app.use(cors({ origin: deps.config.frontendUrl }));
+  app.use('/api', (_req, res, next) => {
+    res.set('Cache-Control', 'no-store');
+    next();
+  });
 
   app.post(
     '/api/webhooks/stripe',

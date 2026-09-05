@@ -104,6 +104,15 @@ describe('Foodscope API', () => {
       nutrition: { fat: { value: 30.9, unit: 'g' } },
     });
     expect(response.body.products[0]).not.toHaveProperty('providerInternalField');
+    expect(response.headers['cache-control']).toBe('no-store');
+  });
+
+  it('prevents caches from retaining authoritative account entitlement', async () => {
+    const response = await request(harness('active').app).get('/api/user');
+
+    expect(response.status).toBe(200);
+    expect(response.body.nutritionAccess).toBe(true);
+    expect(response.headers['cache-control']).toBe('no-store');
   });
 
   it('fails closed when nutrition access is revoked during an upstream search', async () => {

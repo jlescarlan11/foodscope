@@ -23,7 +23,7 @@ Express API
   └── Prisma → MySQL (demo user, subscription state, recent searches)
 ```
 
-The browser never calls Open Food Facts or Stripe APIs directly. Express validates the locale/query, normalizes the small Open Food Facts response, loads subscription state from MySQL, and removes the complete `nutrition` property unless the stored status is `active` or `trialing`. Every returned nutrient carries its explicit per-100-g value and unit.
+The browser never calls Open Food Facts or Stripe APIs directly. Express validates the locale/query, normalizes the small Open Food Facts response, loads subscription state from MySQL, and removes the complete `nutrition` property unless the stored status is `active` or `trialing`. API responses use `Cache-Control: no-store` so a prior entitled response cannot survive revocation in a browser or intermediary cache. Every returned nutrient carries its explicit per-100-g value and unit.
 Impossible upstream values are treated as unavailable: mass nutrients cannot exceed 100 g per 100 g,
 and energy is conservatively capped at 1,000 kcal per 100 g.
 
