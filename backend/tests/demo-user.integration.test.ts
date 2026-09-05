@@ -2,8 +2,9 @@ import { PrismaClient } from '@prisma/client';
 import { afterAll, describe, expect, it } from 'vitest';
 import { DEMO_USER_EMAIL, DEMO_USER_ID } from '../src/constants.js';
 import { ensureDemoUser } from '../src/demo-user.js';
+import { resolveTestDatabaseUrl } from './test-database.js';
 
-const testDatabaseUrl = process.env.TEST_DATABASE_URL;
+const testDatabaseUrl = resolveTestDatabaseUrl(process.env.TEST_DATABASE_URL);
 const integration = describe.runIf(Boolean(testDatabaseUrl));
 
 integration('demo user initialization with MySQL', () => {

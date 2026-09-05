@@ -4,8 +4,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { DEMO_USER_EMAIL, DEMO_USER_ID } from '../src/constants.js';
 import { createRepository } from '../src/repository.js';
 import { CheckoutUnavailableError } from '../src/errors.js';
+import { resolveTestDatabaseUrl } from './test-database.js';
 
-const testDatabaseUrl = process.env.TEST_DATABASE_URL;
+const testDatabaseUrl = resolveTestDatabaseUrl(process.env.TEST_DATABASE_URL);
 const integration = describe.runIf(Boolean(testDatabaseUrl));
 
 function subscription(status: Stripe.Subscription.Status) {
