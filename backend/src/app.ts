@@ -4,7 +4,7 @@ import helmet from 'helmet';
 import type Stripe from 'stripe';
 import { z } from 'zod';
 import type { AppConfig } from './config.js';
-import { canStartCheckout, isActiveSubscription, NUTRITION_RULES, SUPPORTED_LOCALES } from './constants.js';
+import { canStartCheckout, hasNutritionAccess, NUTRITION_RULES, SUPPORTED_LOCALES } from './constants.js';
 import { ProductProviderRateLimitError } from './open-food-facts.js';
 import { CheckoutUnavailableError } from './errors.js';
 import type { BillingProvider, Nutrition, ProductProvider, Repository } from './types.js';
@@ -125,7 +125,10 @@ export function createApp(deps: AppDependencies) {
         email: user.email,
         subscriptionStatus: user.subscriptionStatus,
         subscriptionCurrentPeriodEnd: user.subscriptionCurrentPeriodEnd,
-        nutritionAccess: isActiveSubscription(user.subscriptionStatus),
+        nutritionAccess: hasNutritionAccess(
+          user.subscriptionStatus,
+          user.subscriptionCurrentPeriodEnd,
+        ),
         billingAvailable: deps.billing !== null,
         checkoutAvailable: deps.billing !== null && canStartCheckout(user.subscriptionStatus),
       });
@@ -170,7 +173,10 @@ export function createApp(deps: AppDependencies) {
       }));
       const hasNutrition = publicResults.some(({ nutrition }) => nutrition !== undefined);
       const currentUser = hasNutrition ? await deps.repository.getDemoUser() : user;
-      const unlocked = currentUser ? isActiveSubscription(currentUser.subscriptionStatus) : false;
+      const unlocked = currentUser ? hasNutritionAccess(
+        currentUser.subscriptionStatus,
+        currentUser.subscriptionCurrentPeriodEnd,
+      ) : false;
       const products = publicResults.map(({ product, nutrition }) => {
         if (unlocked) return {
           id: product.id,

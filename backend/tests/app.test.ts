@@ -15,7 +15,13 @@ const baseUser: DemoUser = {
 };
 
 function harness(status = 'inactive') {
-  let user = { ...baseUser, subscriptionStatus: status };
+  let user = {
+    ...baseUser,
+    subscriptionStatus: status,
+    subscriptionCurrentPeriodEnd: status === 'active' || status === 'trialing'
+      ? new Date('2100-01-01T00:00:00.000Z')
+      : null,
+  };
   const searches: RecentSearch[] = [];
   const repository: Repository = {
     getDemoUser: vi.fn(async () => user),
@@ -33,7 +39,11 @@ function harness(status = 'inactive') {
     ) => {
       if (event.type === 'customer.subscription.updated') {
         const currentSubscription = await retrieveSubscription!((event.data.object as Stripe.Subscription).id);
-        user = { ...user, subscriptionStatus: currentSubscription!.status };
+        user = {
+          ...user,
+          subscriptionStatus: currentSubscription!.status,
+          subscriptionCurrentPeriodEnd: new Date(4_102_444_800_000),
+        };
       }
     }),
   };
@@ -206,6 +216,25 @@ describe('Foodscope API', () => {
     expect(response.body.products[0]).not.toHaveProperty('providerInternalField');
     expect(response.headers['cache-control']).toBe('no-store');
   });
+
+  it.each([null, new Date(Number.NaN), new Date('2000-01-01T00:00:00.000Z')])(
+    'fails closed for active entitlement with stale period %s',
+    async (subscriptionCurrentPeriodEnd) => {
+      const setup = harness('active');
+      vi.mocked(setup.repository.getDemoUser).mockResolvedValue({
+        ...baseUser,
+        subscriptionStatus: 'active',
+        subscriptionCurrentPeriodEnd,
+      });
+
+      const account = await request(setup.app).get('/api/user');
+      const products = await search(setup.app, 'spread', 'en');
+
+      expect(account.body.nutritionAccess).toBe(false);
+      expect(products.body.products[0]).toMatchObject({ nutritionLocked: true });
+      expect(products.body.products[0]).not.toHaveProperty('nutrition');
+    },
+  );
 
   it('prevents caches from retaining authoritative account entitlement', async () => {
     const response = await request(harness('active').app).get('/api/user');

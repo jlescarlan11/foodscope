@@ -17,6 +17,12 @@ export const NUTRITION_RULES = {
 export const isActiveSubscription = (status: string) =>
   status === 'active' || status === 'trialing';
 
+export const hasNutritionAccess = (status: string, currentPeriodEnd: Date | null, now = new Date()) =>
+  isActiveSubscription(status) &&
+  currentPeriodEnd instanceof Date &&
+  Number.isFinite(currentPeriodEnd.getTime()) &&
+  currentPeriodEnd > now;
+
 export const CHECKOUT_ELIGIBLE_STATUSES = ['inactive', 'canceled', 'incomplete_expired'] as const;
 
 export const canStartCheckout = (status: string) =>
