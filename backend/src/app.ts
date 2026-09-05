@@ -192,8 +192,7 @@ export function createApp(deps: AppDependencies) {
         product,
         nutrition: publicNutrition(product.nutrition),
       }));
-      const hasNutrition = publicResults.some(({ nutrition }) => nutrition !== undefined);
-      const currentUser = hasNutrition ? await deps.repository.getDemoUser() : user;
+      const currentUser = await deps.repository.getDemoUser();
       if (controller.signal.aborted) return;
       const unlocked = currentUser ? hasNutritionAccess(
         currentUser.subscriptionStatus,

@@ -432,7 +432,35 @@ describe('Foodscope API', () => {
       billingAvailable: true,
       checkoutAvailable: true,
     });
-    expect(setup.repository.getDemoUser).toHaveBeenCalledOnce();
+    expect(setup.repository.getDemoUser).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not return the pre-provider account snapshot when nutrition is missing', async () => {
+    const setup = harness();
+    vi.mocked(setup.dependencies.products.search).mockResolvedValueOnce([{
+      id: 'missing', name: 'No nutrition supplied', brand: null, image: null,
+    }]);
+    vi.mocked(setup.repository.getDemoUser)
+      .mockResolvedValueOnce({
+        id: DEMO_USER_ID,
+        subscriptionStatus: 'inactive',
+        subscriptionCurrentPeriodEnd: null,
+      })
+      .mockResolvedValueOnce({
+        id: DEMO_USER_ID,
+        subscriptionStatus: 'active',
+        subscriptionCurrentPeriodEnd: new Date('2100-01-01T00:00:00.000Z'),
+      });
+
+    const response = await search(setup.app, 'missing', 'en');
+
+    expect(response.status).toBe(200);
+    expect(response.body.account).toEqual({
+      nutritionAccess: true,
+      billingAvailable: true,
+      checkoutAvailable: false,
+    });
+    expect(setup.repository.getDemoUser).toHaveBeenCalledTimes(2);
   });
 
   it('sends only available normalized nutrition to an active user', async () => {
