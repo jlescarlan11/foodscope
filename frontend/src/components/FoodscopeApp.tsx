@@ -80,8 +80,7 @@ function wait(ms: number, signal: AbortSignal) {
 function isUserState(value: unknown): value is UserState {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Record<string, unknown>;
-  return typeof candidate.email === 'string'
-    && typeof candidate.subscriptionStatus === 'string'
+  return typeof candidate.subscriptionStatus === 'string'
     && (candidate.subscriptionCurrentPeriodEnd === null || typeof candidate.subscriptionCurrentPeriodEnd === 'string')
     && typeof candidate.nutritionAccess === 'boolean'
     && typeof candidate.billingAvailable === 'boolean'

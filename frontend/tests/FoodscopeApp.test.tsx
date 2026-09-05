@@ -11,14 +11,12 @@ vi.mock('next/image', () => ({
 }));
 
 const accountState = (overrides: Partial<{
-  email: string;
   subscriptionStatus: string;
   subscriptionCurrentPeriodEnd: string | null;
   nutritionAccess: boolean;
   billingAvailable: boolean;
   checkoutAvailable: boolean;
 }> = {}) => ({
-  email: 'demo@foodscope.local',
   subscriptionStatus: 'inactive',
   subscriptionCurrentPeriodEnd: null,
   nutritionAccess: false,
