@@ -130,6 +130,9 @@ npm run lint
 npm run build
 ```
 
+GitHub Actions runs these checks on pull requests and `main`, cancels superseded runs, replays all
+migrations on disposable MySQL, and then runs the database integration suites sequentially.
+
 The behavioral suite covers invalid search input, Open Food Facts normalization and locale fallback, malformed/missing fields, inactive nutrition redaction, active nutrition delivery, search persistence/retrieval, safe upstream errors, webhook-driven subscription synchronization, invalid webhook signatures, and a frontend locale/search interaction. External requests are mocked during normal tests.
 
 ## Technical decisions

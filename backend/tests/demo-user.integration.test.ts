@@ -36,7 +36,9 @@ integration('demo user initialization with MySQL', () => {
       stripeSubscriptionId: 'sub_preserved',
       subscriptionStatus: 'active',
     });
-    await expect(database.recentSearch.count({ where: { userId: DEMO_USER_ID } })).resolves.toBe(1);
+    await expect(database.recentSearch.count({
+      where: { userId: DEMO_USER_ID, query: 'preserved', locale: 'en' },
+    })).resolves.toBe(1);
     await expect(database.stripeWebhookEvent.count({ where: { id: 'evt_preserved' } })).resolves.toBe(1);
   });
 });
