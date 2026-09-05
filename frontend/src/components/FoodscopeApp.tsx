@@ -11,7 +11,7 @@ const localeNames: Record<Locale, string> = { en: 'EN', nl: 'NL', de: 'DE', fr: 
 const nutritionKeys: Array<keyof Nutrition> = ['energyKcal', 'fat', 'saturatedFat', 'carbohydrates', 'sugars', 'protein', 'salt', 'sodium'];
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_URL}${path}`, init);
+  const response = await fetch(`${API_URL}${path}`, { ...init, cache: 'no-store' });
   if (!response.ok) throw new Error('Request failed');
   return response.json() as Promise<T>;
 }

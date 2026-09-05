@@ -19,7 +19,8 @@ describe('Foodscope locale switching', () => {
   });
 
   it('updates application-controlled text and uses the chosen locale for search', async () => {
-    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      void init;
       const url = String(input);
       const body = url.includes('/api/user')
         ? { email: 'demo@foodscope.local', subscriptionStatus: 'inactive', subscriptionCurrentPeriodEnd: null, nutritionAccess: false }
@@ -29,11 +30,17 @@ describe('Foodscope locale switching', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<FoodscopeApp />);
 
+    await screen.findByText('Free plan');
+    expect(fetchMock.mock.calls.find(([url]) => String(url).includes('/api/user'))?.[1])
+      .toMatchObject({ cache: 'no-store' });
+
     await userEvent.selectOptions(screen.getByLabelText('Language'), 'de');
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Wissen, wasdrin ist.');
     await userEvent.type(screen.getByLabelText('Produkte suchen'), 'Hafermilch');
     await userEvent.click(screen.getByRole('button', { name: /Suchen/ }));
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('q=Hafermilch&lang=de'))).toBe(true);
+    expect(fetchMock.mock.calls.find(([url]) => String(url).includes('/api/products/search'))?.[1])
+      .toMatchObject({ cache: 'no-store' });
   });
 
   it('aborts an older search and ignores its stale response', async () => {
