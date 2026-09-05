@@ -224,9 +224,7 @@ export function createApp(deps: AppDependencies) {
       );
       res.json({
         products,
-        ...(hasNutrition ? {
-          account: currentUser ? publicAccount(currentUser, deps.billing !== null) : null,
-        } : {}),
+        account: currentUser ? publicAccount(currentUser, deps.billing !== null) : null,
       });
     }),
   );

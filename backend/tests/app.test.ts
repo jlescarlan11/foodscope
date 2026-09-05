@@ -408,7 +408,7 @@ describe('Foodscope API', () => {
     });
   });
 
-  it('reports missing nutrition as unavailable instead of claiming it is locked', async () => {
+  it('reports missing nutrition and still synchronizes authoritative account state', async () => {
     const setup = harness();
     vi.mocked(setup.dependencies.products.search).mockResolvedValueOnce([{
       id: 'missing', name: 'No nutrition supplied', brand: null, image: null,
@@ -425,7 +425,11 @@ describe('Foodscope API', () => {
       nutritionLocked: false,
     });
     expect(response.body.products[0]).not.toHaveProperty('nutrition');
-    expect(response.body).not.toHaveProperty('account');
+    expect(response.body.account).toEqual({
+      nutritionAccess: false,
+      billingAvailable: true,
+      checkoutAvailable: true,
+    });
     expect(setup.repository.getDemoUser).toHaveBeenCalledOnce();
   });
 
