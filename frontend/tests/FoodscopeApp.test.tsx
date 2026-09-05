@@ -137,6 +137,9 @@ describe('Foodscope locale switching', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'first' }));
     await userEvent.click(screen.getByRole('button', { name: 'second' }));
 
+    expect(screen.getByLabelText('Produkte suchen')).toHaveValue('second');
+    expect(screen.getByLabelText('Sprache')).toHaveValue('de');
+
     const searchCalls = fetchMock.mock.calls.filter(([url]) => String(url).includes('/api/products/search'));
     expect(searchCalls[0]?.[1]?.signal?.aborted).toBe(true);
     await act(async () => resolveSecond({
