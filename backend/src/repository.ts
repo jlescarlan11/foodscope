@@ -20,15 +20,21 @@ function subscriptionPeriodEnd(subscription: Stripe.Subscription, stripePriceId:
   const items = isRecord(subscription.items) && Array.isArray(subscription.items.data)
     ? subscription.items.data
     : [];
-  const itemEnds = items.flatMap((item) =>
-    isRecord(item) && item.object === 'subscription_item' &&
-      isMonthlyTestPrice(item.price, stripePriceId) &&
-      typeof item.current_period_end === 'number' &&
-      Number.isFinite(item.current_period_end) && item.current_period_end > 0
-      ? [item.current_period_end]
-      : []);
-  if (itemEnds.length === 0) return null;
-  const end = new Date(Math.max(...itemEnds) * 1000);
+  const configuredItems = items.filter((item) => {
+    if (!isRecord(item)) return false;
+    const price: unknown = item.price;
+    return price === stripePriceId ||
+      (isRecord(price) && price.id === stripePriceId);
+  });
+  if (configuredItems.length !== 1) return null;
+  const [item] = configuredItems;
+  if (
+    !isRecord(item) || item.object !== 'subscription_item' ||
+    !isMonthlyTestPrice(item.price, stripePriceId) ||
+    typeof item.current_period_end !== 'number' ||
+    !Number.isFinite(item.current_period_end) || item.current_period_end <= 0
+  ) return null;
+  const end = new Date(item.current_period_end * 1000);
   return Number.isFinite(end.getTime()) && end.getUTCFullYear() <= 9_999 ? end : null;
 }
 

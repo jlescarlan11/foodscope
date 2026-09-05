@@ -457,6 +457,44 @@ describe('Stripe webhook repository', () => {
     }));
   });
 
+  it('fails closed when the configured plan appears more than once', async () => {
+    const update = vi.fn();
+    const tx = {
+      stripeWebhookEvent: eventMarker(),
+      $queryRaw: vi.fn(async () => [{ id: DEMO_USER_ID }]),
+      user: { update, findUnique: vi.fn(async () => ({
+        id: DEMO_USER_ID,
+        stripeCustomerId: 'cus_demo',
+        stripeSubscriptionId: 'sub_current',
+        stripeCheckoutAttemptId: null,
+      })) },
+    };
+    const database = {
+      $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<void>) => callback(tx)),
+    } as unknown as typeof prisma;
+    const current = subscription('active') as unknown as Record<string, unknown>;
+    current.items = { data: [1_800_000_000, 1_900_000_000].map((currentPeriodEnd) => ({
+      object: 'subscription_item',
+      current_period_end: currentPeriodEnd,
+      price: {
+        id: 'price_test', object: 'price', livemode: false, type: 'recurring',
+        recurring: { interval: 'month', interval_count: 1 },
+      },
+    })) };
+
+    await createBillingRepository(database).processStripeEvent(
+      subscriptionEvent('evt_duplicate_plan_items'),
+      async () => current as unknown as Stripe.Subscription,
+    );
+
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        subscriptionStatus: 'unknown',
+        subscriptionCurrentPeriodEnd: null,
+      }),
+    }));
+  });
+
   it('ignores a different subscription even when it carries demo-user metadata', async () => {
     const update = vi.fn();
     const tx = {
