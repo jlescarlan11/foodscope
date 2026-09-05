@@ -37,6 +37,8 @@ describe('Open Food Facts normalization', () => {
   it.each([
     'https://user:secret@images.openfoodfacts.org/product.jpg',
     'https://tracker.example/product.jpg',
+    'https://world.openfoodfacts.org/cgi/search.pl',
+    'https://unexpected.openfoodfacts.org/product.jpg',
   ])('rejects credentialed or untrusted image URL %s', (image) => {
     expect(normalizeProduct({ code: 'safe-image', lang: 'en', image_front_url: image }, 'en')?.image)
       .toBeNull();

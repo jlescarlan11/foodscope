@@ -46,9 +46,7 @@ function imageValue(value: unknown) {
     const url = new URL(text);
     if (url.protocol !== 'https:') return undefined;
     if (url.username || url.password) return undefined;
-    if (url.hostname !== 'images.openfoodfacts.org' && !url.hostname.endsWith('.openfoodfacts.org')) {
-      return undefined;
-    }
+    if (url.hostname !== 'images.openfoodfacts.org') return undefined;
     return url.toString();
   } catch {
     return undefined;
