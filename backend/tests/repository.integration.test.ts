@@ -38,7 +38,7 @@ function checkoutEvent(id: string, sessionId: string) {
   } as unknown as Stripe.Event;
 }
 
-integration('Stripe webhook repository with MySQL', () => {
+integration('Repository with MySQL', () => {
   const database = new PrismaClient({ datasourceUrl: testDatabaseUrl });
   const subject = createRepository(database);
 
@@ -117,6 +117,19 @@ integration('Stripe webhook repository with MySQL', () => {
 
     await expect(database.stripeWebhookEvent.findUnique({ where: { id: 'evt_retrieve_failure' } }))
       .resolves.toBeNull();
+  });
+
+  it('returns the eight newest searches deterministically when timestamps tie', async () => {
+    const createdAt = new Date('2030-01-01T00:00:00.000Z');
+    for (let index = 1; index <= 9; index += 1) {
+      await database.recentSearch.create({
+        data: { userId: DEMO_USER_ID, query: `query-${index}`, locale: 'en', createdAt },
+      });
+    }
+
+    await expect(subject.getRecentSearches(DEMO_USER_ID, 8)).resolves.toMatchObject(
+      Array.from({ length: 8 }, (_value, index) => ({ query: `query-${9 - index}` })),
+    );
   });
 
   it('reserves and reuses one Checkout attempt under concurrency', async () => {

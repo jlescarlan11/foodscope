@@ -60,7 +60,7 @@ export function createRepository(database: typeof prisma): Repository {
     getRecentSearches: (userId, limit) =>
       database.recentSearch.findMany({
         where: { userId },
-        orderBy: { createdAt: 'desc' },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         take: limit,
         select: { id: true, query: true, locale: true, createdAt: true },
       }),
