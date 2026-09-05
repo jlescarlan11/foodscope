@@ -18,6 +18,9 @@ export class StripeBillingProvider implements BillingProvider {
     stripeClient?: Stripe,
   ) {
     if (!config.stripeSecretKey) throw new Error('Stripe is not configured');
+    if (!/^(?:sk|rk)_test_/.test(config.stripeSecretKey)) {
+      throw new Error('Foodscope only supports Stripe test mode');
+    }
     this.stripe = stripeClient ?? new Stripe(config.stripeSecretKey);
   }
 

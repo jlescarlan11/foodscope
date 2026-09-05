@@ -1,6 +1,6 @@
 import type Stripe from 'stripe';
 import { describe, expect, it, vi } from 'vitest';
-import { StripeBillingProvider } from '../src/stripe.js';
+import { createBillingProvider, StripeBillingProvider } from '../src/stripe.js';
 import { DEMO_USER_ID } from '../src/constants.js';
 import type { DemoUser, Repository } from '../src/types.js';
 
@@ -45,6 +45,15 @@ function harness(sessionUrl: string | null = null) {
 }
 
 describe('Stripe Checkout creation', () => {
+  it('refuses to initialize with a live-mode key', () => {
+    expect(() => createBillingProvider({
+      port: 4000,
+      frontendUrl: 'http://localhost:3000',
+      openFoodFactsUserAgent: 'test',
+      stripeSecretKey: 'sk_live_forbidden',
+    }, {} as Repository)).toThrow('only supports Stripe test mode');
+  });
+
   it('uses stable idempotency keys and durably saves the reusable Session', async () => {
     const setup = harness();
 

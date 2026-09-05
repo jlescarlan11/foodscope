@@ -64,7 +64,7 @@ The committed `.env.example` contains fake placeholders only.
 | `STRIPE_PRICE_ID` | Backend | Recurring monthly Price ID |
 | `OPEN_FOOD_FACTS_USER_AGENT` | Backend | Identifiable User-Agent required for responsible API access |
 
-The backend and frontend receive separate local env copies because workspace tools run from their package directories. Deployed environments should set variables through the host's protected environment configuration and expose only `NEXT_PUBLIC_API_URL` to the browser.
+The backend and frontend receive separate local env copies because workspace tools run from their package directories. Deployed environments should set variables through the host's protected environment configuration and expose only `NEXT_PUBLIC_API_URL` to the browser. The backend refuses to start Stripe with a live-mode secret or restricted key.
 
 ## Database
 
