@@ -83,6 +83,7 @@ function harness(sessionUrl: string | null = null, customerId: string | null = n
     customer: params?.customer ?? session.customer,
   }));
   const subscriptionsList = vi.fn(async (): Promise<Record<string, unknown>> => ({
+    object: 'list',
     data: [],
     has_more: false,
   }));
@@ -614,6 +615,7 @@ describe('Stripe Checkout creation', () => {
     async (status) => {
       const setup = harness(null, 'cus_existing');
       setup.subscriptionsList.mockResolvedValueOnce({
+        object: 'list',
         data: [{
           id: 'sub_existing', object: 'subscription', livemode: false,
           customer: 'cus_existing', status,
@@ -638,6 +640,7 @@ describe('Stripe Checkout creation', () => {
   it('allows recovery after only terminal subscriptions', async () => {
     const setup = harness(null, 'cus_existing');
     setup.subscriptionsList.mockResolvedValueOnce({
+      object: 'list',
       data: [
         {
           id: 'sub_canceled', object: 'subscription', livemode: false,
@@ -660,6 +663,7 @@ describe('Stripe Checkout creation', () => {
   });
 
   it.each([
+    ['returns a non-list object', { object: 'invoice', data: [], has_more: false }],
     ['omits pagination completeness', { data: [] }],
     ['reports another page', { data: [], has_more: true }],
     ['omits subscription data', { has_more: false }],
@@ -711,7 +715,7 @@ describe('Stripe Checkout creation', () => {
     }],
   ])('does not create a Session when Stripe %s', async (_case, response) => {
     const setup = harness(null, 'cus_existing');
-    setup.subscriptionsList.mockResolvedValueOnce(response);
+    setup.subscriptionsList.mockResolvedValueOnce({ object: 'list', ...response });
 
     await expect(setup.provider.createCheckout({
       ...user,

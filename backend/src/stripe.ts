@@ -67,7 +67,8 @@ function createdCustomerId(value: unknown, demoUserId: string) {
 function hasOnlyTerminalSubscriptions(value: unknown, expectedCustomerId: string) {
   if (typeof value !== 'object' || value === null) return false;
   const page = value as Record<string, unknown>;
-  return page.has_more === false &&
+  return page.object === 'list' &&
+    page.has_more === false &&
     Array.isArray(page.data) &&
     page.data.every((subscription) => {
       if (typeof subscription !== 'object' || subscription === null) return false;
