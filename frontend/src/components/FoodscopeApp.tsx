@@ -2,10 +2,11 @@
 
 import Image from 'next/image';
 import React, { FormEvent, useEffect, useRef, useState } from 'react';
+import { resolveApiUrl } from '@/config';
 import { dictionaries, locales, type Locale, type Messages } from '@/i18n';
 import type { Nutrition, Product, RecentSearch, UserState } from '@/types';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+const API_URL = resolveApiUrl(process.env.NEXT_PUBLIC_API_URL, process.env.NODE_ENV);
 const localeNames: Record<Locale, string> = { en: 'EN', nl: 'NL', de: 'DE', fr: 'FR' };
 const nutritionKeys: Array<keyof Nutrition> = ['energyKcal', 'fat', 'saturatedFat', 'carbohydrates', 'sugars', 'protein', 'salt', 'sodium'];
 
