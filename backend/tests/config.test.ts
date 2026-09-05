@@ -112,6 +112,7 @@ describe('runtime configuration', () => {
       { ...validStripe, STRIPE_WEBHOOK_SECRET: 'whsec_fake\nextra' },
       { ...validStripe, STRIPE_PRICE_ID: 'product_fake' },
       { ...validStripe, STRIPE_PRICE_ID: 'price_fake extra' },
+      { ...validStripe, STRIPE_PRICE_ID: `price_${'p'.repeat(250)}` },
     ];
 
     for (const stripeEnvironment of invalidEnvironments) {
