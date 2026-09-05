@@ -84,6 +84,19 @@ describe('Open Food Facts normalization', () => {
     expect(cancel).toHaveBeenCalledOnce();
   });
 
+  it('does not expose an overflowing upstream Retry-After value', async () => {
+    const fetcher = vi.fn(async () => new Response('', {
+      status: 429,
+      headers: { 'retry-after': '9'.repeat(400) },
+    }));
+    const provider = new OpenFoodFactsProvider('FoodscopeTest/1.0', fetcher);
+
+    await expect(provider.search('milk', 'en')).rejects.toMatchObject({
+      retryAfterSeconds: undefined,
+    });
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
   it('removes duplicate product IDs from malformed upstream results', async () => {
     const fetcher = vi.fn(async () => new Response(JSON.stringify({ products: [
       { code: 'duplicate', product_name: 'First' },

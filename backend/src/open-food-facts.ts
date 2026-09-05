@@ -44,8 +44,17 @@ function imageValue(value: unknown) {
 }
 
 export class ProductProviderRateLimitError extends Error {
-  constructor(readonly retryAfterSeconds?: number) {
+  readonly retryAfterSeconds?: number;
+
+  constructor(retryAfterSeconds?: number) {
     super('Open Food Facts rate limit reached');
+    if (
+      Number.isSafeInteger(retryAfterSeconds) &&
+      retryAfterSeconds !== undefined &&
+      retryAfterSeconds >= 0
+    ) {
+      this.retryAfterSeconds = retryAfterSeconds;
+    }
   }
 }
 

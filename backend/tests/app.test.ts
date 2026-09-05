@@ -415,6 +415,21 @@ describe('Foodscope API', () => {
     expect(response.body).toEqual({ error: 'Product search is temporarily unavailable' });
   });
 
+  it.each([Number.POSITIVE_INFINITY, Number.NaN, -1, 1.5])(
+    'does not emit malformed Retry-After metadata %s',
+    async (retryAfterSeconds) => {
+      const setup = harness();
+      vi.mocked(setup.dependencies.products.search).mockRejectedValueOnce(
+        new ProductProviderRateLimitError(retryAfterSeconds),
+      );
+
+      const response = await search(setup.app, 'milk', 'en');
+
+      expect(response.status).toBe(503);
+      expect(response.headers['retry-after']).toBeUndefined();
+    },
+  );
+
   it('synchronizes subscription events only after signature verification', async () => {
     const { app, repository, dependencies, event } = harness();
     const response = await request(app).post('/api/webhooks/stripe').set('stripe-signature', 'valid').set('content-type', 'application/json').send('{}');
