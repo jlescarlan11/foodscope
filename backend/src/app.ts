@@ -18,9 +18,16 @@ export type AppDependencies = {
 
 const searchSchema = z.object({
   requestId: z.string().uuid(),
-  q: z.string().trim().min(1).max(120),
+  q: z.string().trim().min(1).max(120).refine(isUsableSearchQuery),
   lang: z.enum(SUPPORTED_LOCALES),
 });
+
+const visibleSearchCharacter = /[\p{L}\p{N}\p{P}\p{S}]/u;
+const controlCharacter = /\p{Cc}/u;
+
+function isUsableSearchQuery(value: string) {
+  return visibleSearchCharacter.test(value) && !controlCharacter.test(value);
+}
 
 const relevantStripeEventTypes = new Set<Stripe.Event.Type>([
   'checkout.session.completed',
@@ -242,6 +249,7 @@ export function createApp(deps: AppDependencies) {
       res.json({
         searches: searches.flatMap(({ query, locale }) =>
           query.trim() && Array.from(query).length <= 120 &&
+            isUsableSearchQuery(query) &&
             SUPPORTED_LOCALES.includes(locale as (typeof SUPPORTED_LOCALES)[number])
             ? [{ query, locale }]
             : []),
