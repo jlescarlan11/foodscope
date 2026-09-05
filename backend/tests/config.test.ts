@@ -49,7 +49,11 @@ describe('runtime configuration', () => {
 
   it('binds locally by default and requires an explicit production network boundary', () => {
     expect(loadConfig(validEnvironment).host).toBe('127.0.0.1');
-    expect(loadConfig({ ...validEnvironment, NODE_ENV: 'production' }).host).toBe('0.0.0.0');
+    expect(loadConfig({
+      ...validEnvironment,
+      NODE_ENV: 'production',
+      FRONTEND_URL: 'https://frontend.example',
+    }).host).toBe('0.0.0.0');
     expect(loadConfig({ ...validEnvironment, HOST: '::1' }).host).toBe('::1');
     expect(() => loadConfig({ ...validEnvironment, HOST: 'api.example.test' })).toThrow(
       'HOST must be localhost or an IP address',
@@ -76,6 +80,10 @@ describe('runtime configuration', () => {
   });
 
   it('requires HTTPS for non-loopback production frontend origins', () => {
+    expect(() => loadConfig({
+      ...validEnvironment,
+      NODE_ENV: 'production',
+    })).toThrow('FRONTEND_URL is required in production');
     expect(() => loadConfig({
       ...validEnvironment,
       NODE_ENV: 'production',

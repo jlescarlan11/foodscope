@@ -31,6 +31,9 @@ function parseHost(value: string | undefined, environment: string | undefined) {
 }
 
 function parseFrontendOrigin(value: string | undefined, environment: string | undefined) {
+  if (!value && environment === 'production') {
+    throw new Error('FRONTEND_URL is required in production');
+  }
   const input = value ?? 'http://localhost:3000';
   let url: URL;
   try {
