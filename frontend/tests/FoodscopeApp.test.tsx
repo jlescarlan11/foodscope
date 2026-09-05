@@ -92,6 +92,26 @@ describe('Foodscope locale switching', () => {
     );
   });
 
+  it.each([
+    {},
+    { searches: 'not-an-array' },
+    { searches: [{ id: 1, query: null, locale: 'en', createdAt: '' }] },
+    { searches: Array.from({ length: 9 }, (_value, index) => ({
+      id: index + 1, query: `query-${index}`, locale: 'en', createdAt: '',
+    })) },
+  ])('ignores malformed recent-search response %# without crashing', async (recentResponse) => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const body = String(input).includes('/api/user') ? accountState() : recentResponse;
+      return { ok: true, json: async () => body } as Response;
+    }));
+
+    render(<FoodscopeApp />);
+
+    expect(await screen.findByText('Free plan')).toBeInTheDocument();
+    expect(screen.queryByText('Recent searches')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Search products')).toBeEnabled();
+  });
+
   it('aborts an older search and ignores its stale response', async () => {
     let resolveFirst!: (response: Response) => void;
     let resolveSecond!: (response: Response) => void;

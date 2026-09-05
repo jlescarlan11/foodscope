@@ -118,6 +118,19 @@ function isProductSearchResponse(value: unknown): value is { products: Product[]
   });
 }
 
+function isRecentSearchResponse(value: unknown): value is { searches: RecentSearch[] } {
+  if (!value || typeof value !== 'object') return false;
+  const searches = (value as Record<string, unknown>).searches;
+  return Array.isArray(searches) && searches.length <= 8 && searches.every((value) => {
+    if (!value || typeof value !== 'object') return false;
+    const search = value as Record<string, unknown>;
+    return typeof search.id === 'number' && Number.isSafeInteger(search.id) && search.id > 0 &&
+      typeof search.query === 'string' && Boolean(search.query.trim()) && search.query.length <= 120 &&
+      typeof search.locale === 'string' && locales.includes(search.locale as Locale) &&
+      typeof search.createdAt === 'string';
+  });
+}
+
 function ProductCard({ product, messages }: { product: Product; messages: Messages }) {
   const [failedImage, setFailedImage] = useState<string | null>(null);
   const showImage = product.image && failedImage !== product.image;
@@ -169,11 +182,12 @@ export function FoodscopeApp() {
 
   const refreshRecent = (signal?: AbortSignal) => {
     const requestId = ++recentSequence.current;
-    return api<{ searches: RecentSearch[] }>(
+    return api<unknown>(
       '/api/searches/recent',
       signal ? { signal } : undefined,
-    ).then(({ searches }) => {
-      if (requestId === recentSequence.current) setRecent(searches);
+    ).then((response) => {
+      if (!isRecentSearchResponse(response)) throw new Error('Invalid recent searches response');
+      if (requestId === recentSequence.current) setRecent(response.searches);
     }).catch(() => undefined);
   };
 
