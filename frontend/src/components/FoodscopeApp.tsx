@@ -131,6 +131,18 @@ function isRecentSearchResponse(value: unknown): value is { searches: RecentSear
   });
 }
 
+function isCheckoutResponse(value: unknown): value is { url: string } {
+  if (!value || typeof value !== 'object') return false;
+  const checkoutUrl = (value as Record<string, unknown>).url;
+  if (typeof checkoutUrl !== 'string') return false;
+  try {
+    const url = new URL(checkoutUrl);
+    return url.protocol === 'https:' && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+}
+
 function ProductCard({ product, messages }: { product: Product; messages: Messages }) {
   const [failedImage, setFailedImage] = useState<string | null>(null);
   const showImage = product.image && failedImage !== product.image;
@@ -306,12 +318,13 @@ export function FoodscopeApp() {
   async function subscribe() {
     setSubscribing(true); setCheckoutError(false); setCheckoutCancelled(false);
     try {
-      const { url } = await api<{ url: string }>(
+      const checkout = await api<unknown>(
         '/api/billing/checkout-session',
         { method: 'POST' },
         REQUEST_TIMEOUT_MS.checkout,
       );
-      window.location.assign(url);
+      if (!isCheckoutResponse(checkout)) throw new Error('Invalid Checkout response');
+      window.location.assign(checkout.url);
     } catch (error) {
       if (error instanceof ApiResponseError && error.status === 409) {
         setCheckoutConflict(true);

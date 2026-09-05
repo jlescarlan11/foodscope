@@ -533,6 +533,29 @@ describe('Foodscope locale switching', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('We could not open Checkout');
   });
 
+  it.each([
+    {},
+    { url: null },
+    { url: 'javascript:alert(1)' },
+    { url: 'https://user:password@checkout.stripe.test/session' },
+  ])('reports malformed successful Checkout response %# instead of redirecting', async (checkoutResponse) => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      const body = url.includes('/api/user')
+        ? accountState()
+        : url.includes('/api/searches/recent')
+          ? { searches: [] }
+          : checkoutResponse;
+      return { ok: true, json: async () => body } as Response;
+    }));
+    render(<FoodscopeApp />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Unlock nutrition' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('We could not open Checkout');
+    expect(screen.getByRole('button', { name: 'Unlock nutrition' })).toBeEnabled();
+  });
+
   it('refreshes authoritative account state when Checkout detects concurrent activation', async () => {
     let accountReads = 0;
     const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
