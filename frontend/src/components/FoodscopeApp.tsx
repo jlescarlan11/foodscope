@@ -1,25 +1,214 @@
 'use client';
 
 import Image from 'next/image';
-import React, { FormEvent, useEffect, useState } from 'react';
+import React, { FormEvent, useEffect, useRef, useState } from 'react';
+import { resolveApiUrl } from '@/config';
 import { dictionaries, locales, type Locale, type Messages } from '@/i18n';
 import type { Nutrition, Product, RecentSearch, UserState } from '@/types';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+const API_URL = resolveApiUrl(process.env.NEXT_PUBLIC_API_URL, process.env.NODE_ENV);
 const localeNames: Record<Locale, string> = { en: 'EN', nl: 'NL', de: 'DE', fr: 'FR' };
 const nutritionKeys: Array<keyof Nutrition> = ['energyKcal', 'fat', 'saturatedFat', 'carbohydrates', 'sugars', 'protein', 'salt', 'sodium'];
+const nutritionUnits: Record<keyof Nutrition, 'g' | 'kcal'> = {
+  energyKcal: 'kcal',
+  fat: 'g',
+  saturatedFat: 'g',
+  carbohydrates: 'g',
+  sugars: 'g',
+  protein: 'g',
+  salt: 'g',
+  sodium: 'g',
+};
+export const REQUEST_TIMEOUT_MS = {
+  account: 8_000,
+  search: 28_000,
+  checkout: 28_000,
+} as const;
 
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_URL}${path}`, init);
-  if (!response.ok) throw new Error('Request failed');
-  return response.json() as Promise<T>;
+const visibleSearchCharacter = /[\p{L}\p{N}\p{P}\p{S}]/u;
+const unsafeSearchCharacter = /[\p{Cc}\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u;
+const MAX_SEARCH_QUERY_CHARACTERS = 120;
+const CHECKOUT_POLL_MARKER_KEY = 'foodscope.checkout-initiated-at';
+const CHECKOUT_POLL_MARKER_MAX_AGE_MS = 2 * 60 * 60 * 1000;
+
+function isUsableSearchQuery(value: string) {
+  return Array.from(value).length <= MAX_SEARCH_QUERY_CHARACTERS &&
+    visibleSearchCharacter.test(value) && !unsafeSearchCharacter.test(value);
+}
+
+function markCheckoutInitiated() {
+  try {
+    window.sessionStorage.setItem(CHECKOUT_POLL_MARKER_KEY, String(Date.now()));
+  } catch {
+    // Storage can be unavailable; one authoritative return read remains safe.
+  }
+}
+
+function clearCheckoutMarker() {
+  try {
+    window.sessionStorage.removeItem(CHECKOUT_POLL_MARKER_KEY);
+  } catch {
+    // Storage can be unavailable.
+  }
+}
+
+function hasRecentCheckoutMarker() {
+  try {
+    const initiatedAt = Number(window.sessionStorage.getItem(CHECKOUT_POLL_MARKER_KEY));
+    const age = Date.now() - initiatedAt;
+    return Number.isFinite(initiatedAt) && initiatedAt > 0 && age >= 0 &&
+      age <= CHECKOUT_POLL_MARKER_MAX_AGE_MS;
+  } catch {
+    return false;
+  }
+}
+
+class ApiResponseError extends Error {
+  constructor(readonly status: number, readonly retryAfterSeconds?: number) {
+    super('Request failed');
+  }
+}
+
+function responseRetryAfterSeconds(response: Response) {
+  const value = response.headers?.get?.('retry-after');
+  if (!value || !/^\d+$/.test(value)) return undefined;
+  const seconds = Number(value);
+  return Number.isSafeInteger(seconds) && seconds >= 1
+    ? Math.min(seconds, 3_600)
+    : undefined;
+}
+
+async function api<T>(
+  path: string,
+  init?: RequestInit,
+  timeoutMs: number = REQUEST_TIMEOUT_MS.account,
+): Promise<T> {
+  const controller = new AbortController();
+  const callerSignal = init?.signal;
+  const abortFromCaller = () => controller.abort(callerSignal?.reason);
+  if (callerSignal?.aborted) abortFromCaller();
+  else callerSignal?.addEventListener('abort', abortFromCaller, { once: true });
+  const timeout = window.setTimeout(
+    () => controller.abort(new DOMException('Request timed out', 'TimeoutError')),
+    timeoutMs,
+  );
+  try {
+    const response = await fetch(`${API_URL}${path}`, {
+      ...init,
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new ApiResponseError(response.status, responseRetryAfterSeconds(response));
+    }
+    return await response.json() as T;
+  } finally {
+    window.clearTimeout(timeout);
+    callerSignal?.removeEventListener('abort', abortFromCaller);
+  }
+}
+
+function wait(ms: number, signal: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    if (signal.aborted) {
+      reject(signal.reason);
+      return;
+    }
+    const onAbort = () => {
+      window.clearTimeout(timeout);
+      reject(signal.reason);
+    };
+    const timeout = window.setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+function isUserState(value: unknown): value is UserState {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate.nutritionAccess === 'boolean'
+    && typeof candidate.billingAvailable === 'boolean'
+    && typeof candidate.checkoutAvailable === 'boolean';
+}
+
+function searchResponseAccount(value: unknown):
+  | { valid: true; account: UserState | null }
+  | { valid: false } {
+  if (!value || typeof value !== 'object' || !('account' in value)) return { valid: false };
+  const account = (value as Record<string, unknown>).account;
+  return account === null || isUserState(account)
+    ? { valid: true, account }
+    : { valid: false };
+}
+
+function isProductSearchResponse(
+  value: unknown,
+): value is { products: Product[]; account: UserState | null } {
+  if (!value || typeof value !== 'object') return false;
+  const response = value as Record<string, unknown>;
+  if (!searchResponseAccount(response).valid) return false;
+  const products = response.products;
+  if (!Array.isArray(products)) return false;
+  return products.every((value) => {
+    if (!value || typeof value !== 'object') return false;
+    const product = value as Record<string, unknown>;
+    if (
+      typeof product.id !== 'string' || !product.id ||
+      (product.name !== null && typeof product.name !== 'string') ||
+      (product.brand !== null && typeof product.brand !== 'string') ||
+      (product.image !== null && typeof product.image !== 'string') ||
+      typeof product.nutritionLocked !== 'boolean'
+    ) return false;
+    if (product.nutrition === undefined) return true;
+    if (product.nutritionLocked || !product.nutrition || typeof product.nutrition !== 'object') {
+      return false;
+    }
+    const entries = Object.entries(product.nutrition as Record<string, unknown>);
+    return entries.length > 0 && entries.every(([key, value]) => {
+      if (!nutritionKeys.includes(key as keyof Nutrition) || !value || typeof value !== 'object') {
+        return false;
+      }
+      const nutrient = value as Record<string, unknown>;
+      return typeof nutrient.value === 'number' && Number.isFinite(nutrient.value) &&
+        nutrient.value >= 0 && nutrient.unit === nutritionUnits[key as keyof Nutrition];
+    });
+  });
+}
+
+function isRecentSearchResponse(value: unknown): value is { searches: RecentSearch[] } {
+  if (!value || typeof value !== 'object') return false;
+  const searches = (value as Record<string, unknown>).searches;
+  return Array.isArray(searches) && searches.length <= 8 && searches.every((value) => {
+    if (!value || typeof value !== 'object') return false;
+    const search = value as Record<string, unknown>;
+    return typeof search.query === 'string' && Boolean(search.query.trim()) &&
+      isUsableSearchQuery(search.query) &&
+      typeof search.locale === 'string' && locales.includes(search.locale as Locale);
+  });
+}
+
+function isCheckoutResponse(value: unknown): value is { url: string } {
+  if (!value || typeof value !== 'object') return false;
+  const checkoutUrl = (value as Record<string, unknown>).url;
+  if (typeof checkoutUrl !== 'string') return false;
+  try {
+    const url = new URL(checkoutUrl);
+    return url.protocol === 'https:' && !url.username && !url.password;
+  } catch {
+    return false;
+  }
 }
 
 function ProductCard({ product, messages }: { product: Product; messages: Messages }) {
+  const [failedImage, setFailedImage] = useState<string | null>(null);
+  const showImage = product.image && failedImage !== product.image;
   return (
     <article className="product-card">
       <div className="product-image-wrap">
-        {product.image ? <Image src={product.image} alt={product.name ?? messages.unavailable} fill sizes="(max-width: 720px) 100vw, 33vw" className="product-image" /> : <span className="image-fallback" aria-hidden="true">◌</span>}
+        {showImage ? <Image src={product.image!} alt={product.name ?? messages.unavailable} fill sizes="(max-width: 620px) 100vw, (max-width: 900px) 50vw, 33vw" className="product-image" onError={() => setFailedImage(product.image)} /> : <span className="image-fallback" aria-hidden="true">◌</span>}
       </div>
       <div className="product-content">
         <p className="brand">{product.brand ?? messages.unknownBrand}</p>
@@ -29,9 +218,10 @@ function ProductCard({ product, messages }: { product: Product; messages: Messag
         ) : (
           <div className="nutrition">
             <p className="nutrition-title">{messages.nutrition}</p>
-            {product.nutrition && nutritionKeys.filter((key) => product.nutrition?.[key] !== undefined).map((key) => (
-              <div className="nutrient" key={key}><span>{messages[key]}</span><strong>{product.nutrition?.[key]} {key === 'energyKcal' ? 'kcal' : 'g'}</strong></div>
-            ))}
+            {product.nutrition && nutritionKeys.filter((key) => product.nutrition?.[key] !== undefined).map((key) => {
+              const nutrient = product.nutrition?.[key];
+              return nutrient && <div className="nutrient" key={key}><span>{messages[key]}</span><strong>{nutrient.value} {nutrient.unit}</strong></div>;
+            })}
             {!product.nutrition && <p className="muted">{messages.unavailable}</p>}
           </div>
         )}
@@ -45,44 +235,257 @@ export function FoodscopeApp() {
   const [query, setQuery] = useState('');
   const [products, setProducts] = useState<Product[] | null>(null);
   const [recent, setRecent] = useState<RecentSearch[]>([]);
+  const [recentError, setRecentError] = useState(false);
   const [user, setUser] = useState<UserState | null>(null);
+  const [accountState, setAccountState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [loading, setLoading] = useState(false);
+  const [searchRateLimited, setSearchRateLimited] = useState(false);
   const [subscribing, setSubscribing] = useState(false);
-  const [error, setError] = useState(false);
+  const [searchError, setSearchError] = useState(false);
+  const [checkoutError, setCheckoutError] = useState(false);
+  const [checkoutRateLimited, setCheckoutRateLimited] = useState(false);
+  const [checkoutConflict, setCheckoutConflict] = useState(false);
+  const [checkoutCancelled, setCheckoutCancelled] = useState(false);
+  const searchSequence = useRef(0);
+  const searchController = useRef<AbortController | null>(null);
+  const activeSearchKey = useRef<string | null>(null);
+  const retrySearchAttempt = useRef<{ key: string; requestId: string } | null>(null);
+  const recentSequence = useRef(0);
+  const recentController = useRef<AbortController | null>(null);
+  const accountSequence = useRef(0);
+  const accountController = useRef<AbortController | null>(null);
+  const checkoutController = useRef<AbortController | null>(null);
+  const searchRetryTimer = useRef<number | null>(null);
+  const checkoutRetryTimer = useRef<number | null>(null);
   const messages = dictionaries[locale];
 
-  const refreshAccount = () => api<UserState>('/api/user').then(setUser).catch(() => setError(true));
-  const refreshRecent = () => api<{ searches: RecentSearch[] }>('/api/searches/recent').then(({ searches }) => setRecent(searches)).catch(() => undefined);
+  const refreshRecent = () => {
+    recentController.current?.abort();
+    const controller = new AbortController();
+    recentController.current = controller;
+    const requestId = ++recentSequence.current;
+    return api<unknown>(
+      '/api/searches/recent',
+      { signal: controller.signal },
+    ).then((response) => {
+      if (!isRecentSearchResponse(response)) throw new Error('Invalid recent searches response');
+      if (requestId === recentSequence.current) {
+        setRecent(response.searches);
+        setRecentError(false);
+      }
+    }).catch(() => {
+      if (requestId === recentSequence.current && !controller.signal.aborted) {
+        setRecentError(true);
+      }
+    }).finally(() => {
+      if (recentController.current === controller) recentController.current = null;
+    });
+  };
 
-  useEffect(() => { void Promise.all([refreshAccount(), refreshRecent()]); }, []);
+  const loadAccount = async (controller: AbortController, pollAfterCheckout = false) => {
+    const requestId = ++accountSequence.current;
+    const delays = pollAfterCheckout ? [0, 1_000, 2_000, 4_000, 8_000] : [0];
+    let loadedAccount: UserState | null = null;
+    for (const delayMs of delays) {
+      try {
+        if (delayMs) await wait(delayMs, controller.signal);
+        const candidate = await api<unknown>('/api/user', { signal: controller.signal });
+        if (!isUserState(candidate)) throw new Error('Invalid account response');
+        loadedAccount = candidate;
+        if (controller.signal.aborted || requestId !== accountSequence.current) return;
+        if (loadedAccount.nutritionAccess || !loadedAccount.billingAvailable) break;
+      } catch {
+        if (controller.signal.aborted || requestId !== accountSequence.current) return;
+        loadedAccount = null;
+      }
+    }
+    if (requestId !== accountSequence.current) return;
+    if (loadedAccount) {
+      setUser(loadedAccount);
+      setAccountState('ready');
+    } else {
+      setAccountState('error');
+    }
+  };
+
+  useEffect(() => {
+    const controller = new AbortController();
+    accountController.current = controller;
+    const currentUrl = new URL(window.location.href);
+    const checkoutStatus = currentUrl.searchParams.get('checkout');
+    const returnedFromCheckout = checkoutStatus === 'success';
+    const pollAfterCheckout = returnedFromCheckout && hasRecentCheckoutMarker();
+    const clearCheckoutStatus = () => {
+      const latestUrl = new URL(window.location.href);
+      latestUrl.searchParams.delete('checkout');
+      window.history.replaceState(null, '', `${latestUrl.pathname}${latestUrl.search}${latestUrl.hash}`);
+    };
+    if (checkoutStatus === 'cancelled') {
+      clearCheckoutMarker();
+      clearCheckoutStatus();
+      void Promise.resolve().then(() => {
+        if (!controller.signal.aborted) setCheckoutCancelled(true);
+      });
+    }
+
+    const accountRequest = loadAccount(controller, pollAfterCheckout);
+    if (returnedFromCheckout) {
+      void accountRequest.finally(() => {
+        if (!controller.signal.aborted) {
+          clearCheckoutMarker();
+          clearCheckoutStatus();
+        }
+      });
+    }
+    void Promise.all([accountRequest, refreshRecent()]);
+    return () => {
+      accountController.current?.abort();
+      searchController.current?.abort();
+      recentController.current?.abort();
+      checkoutController.current?.abort();
+      if (searchRetryTimer.current !== null) window.clearTimeout(searchRetryTimer.current);
+      if (checkoutRetryTimer.current !== null) window.clearTimeout(checkoutRetryTimer.current);
+    };
+  }, []);
   useEffect(() => { document.documentElement.lang = locale; }, [locale]);
 
   async function runSearch(term: string, searchLocale: Locale = locale) {
     const clean = term.trim();
-    if (!clean) return;
-    setQuery(clean); setLoading(true); setError(false);
+    if (searchRateLimited || !clean || !isUsableSearchQuery(clean)) return;
+    const searchKey = `${searchLocale}\u0000${clean}`;
+    if (activeSearchKey.current === searchKey) return;
+    const operationId = retrySearchAttempt.current?.key === searchKey
+      ? retrySearchAttempt.current.requestId
+      : crypto.randomUUID();
+    retrySearchAttempt.current = { key: searchKey, requestId: operationId };
+    const sequenceId = ++searchSequence.current;
+    searchController.current?.abort();
+    const controller = new AbortController();
+    searchController.current = controller;
+    activeSearchKey.current = searchKey;
+    setQuery(clean); setProducts(null); setLoading(true); setSearchError(false);
     try {
-      const result = await api<{ products: Product[] }>(`/api/products/search?q=${encodeURIComponent(clean)}&lang=${searchLocale}`);
+      const result = await api<unknown>(
+        '/api/products/search',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ requestId: operationId, q: clean, lang: searchLocale }),
+          signal: controller.signal,
+        },
+        REQUEST_TIMEOUT_MS.search,
+      );
+      if (sequenceId !== searchSequence.current) return;
+      const account = searchResponseAccount(result);
+      accountController.current?.abort();
+      accountController.current = null;
+      accountSequence.current += 1;
+      if (!account.valid) {
+        setUser(null);
+        setAccountState('error');
+        throw new Error('Invalid product response');
+      }
+      setUser(account.account);
+      setAccountState(account.account ? 'ready' : 'error');
+      if (!isProductSearchResponse(result)) throw new Error('Invalid product response');
       setProducts(result.products);
-      await refreshRecent();
-    } catch { setError(true); setProducts(null); }
-    finally { setLoading(false); }
+      if (retrySearchAttempt.current?.requestId === operationId) retrySearchAttempt.current = null;
+      void refreshRecent();
+    } catch (searchError) {
+      if (sequenceId === searchSequence.current && !(searchError instanceof DOMException && searchError.name === 'AbortError')) {
+        if (
+          searchError instanceof ApiResponseError &&
+          searchError.status === 503 &&
+          searchError.retryAfterSeconds !== undefined
+        ) {
+          setSearchRateLimited(true);
+          if (searchRetryTimer.current !== null) window.clearTimeout(searchRetryTimer.current);
+          searchRetryTimer.current = window.setTimeout(() => {
+            searchRetryTimer.current = null;
+            setSearchRateLimited(false);
+          }, searchError.retryAfterSeconds * 1000);
+        } else {
+          setSearchError(true);
+        }
+        setProducts(null);
+      }
+    } finally {
+      if (sequenceId === searchSequence.current) {
+        setLoading(false);
+        searchController.current = null;
+        activeSearchKey.current = null;
+      }
+    }
+  }
+
+  function changeLocale(nextLocale: Locale) {
+    searchSequence.current += 1;
+    searchController.current?.abort();
+    searchController.current = null;
+    activeSearchKey.current = null;
+    retrySearchAttempt.current = null;
+    setLoading(false); setProducts(null); setSearchError(false); setLocale(nextLocale);
   }
 
   function submit(event: FormEvent) { event.preventDefault(); void runSearch(query); }
   async function subscribe() {
-    setSubscribing(true); setError(false);
+    if (checkoutController.current) return;
+    const controller = new AbortController();
+    checkoutController.current = controller;
+    setSubscribing(true); setCheckoutError(false); setCheckoutCancelled(false);
     try {
-      const { url } = await api<{ url: string }>('/api/billing/checkout-session', { method: 'POST' });
-      window.location.assign(url);
-    } catch { setError(true); setSubscribing(false); }
+      const checkout = await api<unknown>(
+        '/api/billing/checkout-session',
+        { method: 'POST', signal: controller.signal },
+        REQUEST_TIMEOUT_MS.checkout,
+      );
+      if (!isCheckoutResponse(checkout)) throw new Error('Invalid Checkout response');
+      if (controller.signal.aborted) return;
+      markCheckoutInitiated();
+      try {
+        window.location.assign(checkout.url);
+      } catch (error) {
+        clearCheckoutMarker();
+        throw error;
+      }
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      if (error instanceof ApiResponseError && error.status === 429) {
+        setCheckoutRateLimited(true);
+        checkoutRetryTimer.current = window.setTimeout(() => {
+          checkoutRetryTimer.current = null;
+          setCheckoutRateLimited(false);
+        }, (error.retryAfterSeconds ?? 60) * 1000);
+      } else if (error instanceof ApiResponseError && error.status === 409) {
+        setCheckoutConflict(true);
+        accountController.current?.abort();
+        const controller = new AbortController();
+        accountController.current = controller;
+        setAccountState('loading');
+        await loadAccount(controller);
+      } else {
+        setCheckoutError(true);
+      }
+      setSubscribing(false);
+    } finally {
+      if (checkoutController.current === controller) checkoutController.current = null;
+    }
+  }
+
+  function retryAccount() {
+    setCheckoutConflict(false);
+    accountController.current?.abort();
+    const controller = new AbortController();
+    accountController.current = controller;
+    setAccountState('loading');
+    void loadAccount(controller);
   }
 
   return (
     <main>
       <header className="topbar">
         <a href="#content" className="wordmark" aria-label="Foodscope home"><span className="logo-mark">f</span>foodscope</a>
-        <label className="locale-control"><span>{messages.language}</span><select value={locale} onChange={(event) => setLocale(event.target.value as Locale)}>{locales.map((item) => <option key={item} value={item}>{localeNames[item]}</option>)}</select></label>
+        <label className="locale-control"><span>{messages.language}</span><select aria-label={messages.language} value={locale} onChange={(event) => changeLocale(event.target.value as Locale)}>{locales.map((item) => <option key={item} value={item}>{localeNames[item]}</option>)}</select></label>
       </header>
 
       <section className="hero" id="content">
@@ -93,29 +496,45 @@ export function FoodscopeApp() {
           <form onSubmit={submit} className="search-form">
             <label className="sr-only" htmlFor="product-search">{messages.searchLabel}</label>
             <span aria-hidden="true" className="search-symbol">⌕</span>
-            <input id="product-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={messages.searchPlaceholder} maxLength={120} />
-            <button disabled={loading || !query.trim()}>{loading ? messages.searching : messages.search}<span aria-hidden="true">→</span></button>
+            <input id="product-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={messages.searchPlaceholder} maxLength={MAX_SEARCH_QUERY_CHARACTERS * 2} />
+            <button disabled={loading || searchRateLimited || !query.trim() || !isUsableSearchQuery(query)}>{loading ? messages.searching : messages.search}<span aria-hidden="true">→</span></button>
           </form>
-          {recent.length > 0 && <div className="recent"><span>{messages.recent}</span><div>{recent.map((item) => <button key={item.id} onClick={() => { const recentLocale = locales.includes(item.locale as Locale) ? item.locale as Locale : locale; setLocale(recentLocale); void runSearch(item.query, recentLocale); }}>{item.query}</button>)}</div></div>}
-          {error && <p className="alert" role="alert">{messages.error}</p>}
+          {recent.length > 0 && <div className="recent"><span>{messages.recent}</span><div>{recent.map((item, index) => <button disabled={searchRateLimited} key={`${item.locale}:${item.query}:${index}`} onClick={() => { const recentLocale = item.locale as Locale; setLocale(recentLocale); setQuery(item.query); void runSearch(item.query, recentLocale); }}>{item.query}<span className="recent-locale">{localeNames[item.locale as Locale]}</span></button>)}</div></div>}
+          {recentError && <div className="recent-recovery"><p role="alert">{messages.recentUnavailable}</p><button onClick={() => void refreshRecent()}>{messages.retryRecent}<span aria-hidden="true">↻</span></button></div>}
+          {checkoutCancelled && <p className="notice" role="status">{messages.checkoutCancelled}</p>}
+          {searchError && <p className="alert" role="alert">{messages.error}</p>}
+          {searchRateLimited && <p className="alert" role="alert">{messages.searchRateLimited}</p>}
         </div>
 
         <aside className="plan-card">
-          <div className="plan-top"><span className="spark" aria-hidden="true">✣</span><div><p>{messages.plan}</p><strong>{user?.nutritionAccess ? messages.active : messages.inactive}</strong></div><span className={`status-dot ${user?.nutritionAccess ? 'on' : ''}`} /></div>
+          <div className="plan-top"><span className="spark" aria-hidden="true">✣</span><div><p>{messages.plan}</p><strong role="status">{accountState === 'loading' ? messages.loading : accountState === 'error' ? messages.accountUnavailable : user?.nutritionAccess ? messages.active : messages.inactive}</strong></div><span aria-hidden="true" className={`status-dot ${accountState === 'ready' && user?.nutritionAccess ? 'on' : ''}`} /></div>
           <p>{messages.subscriptionBody}</p>
-          {!user?.nutritionAccess && <button onClick={() => void subscribe()} disabled={subscribing}>{subscribing ? messages.redirecting : messages.subscribe}<span>↗</span></button>}
+          {accountState === 'error' && <button onClick={retryAccount}>{messages.retryAccount}<span aria-hidden="true">↻</span></button>}
+          {accountState === 'ready' && !user?.nutritionAccess && user?.billingAvailable && user.checkoutAvailable && !checkoutConflict && <button onClick={() => void subscribe()} disabled={subscribing || checkoutRateLimited}>{subscribing ? messages.redirecting : messages.subscribe}<span aria-hidden="true">↗</span></button>}
+          {accountState === 'ready' && !user?.nutritionAccess && user?.billingAvailable === false && <p className="plan-note">{messages.checkoutUnavailable}</p>}
+          {accountState === 'ready' && !user?.nutritionAccess && user?.billingAvailable && (!user.checkoutAvailable || checkoutConflict) && <p className="plan-note">{messages.checkoutBlocked}</p>}
+          {accountState === 'ready' && !user?.nutritionAccess && user?.billingAvailable && checkoutConflict && <button onClick={retryAccount}>{messages.retryAccount}<span aria-hidden="true">↻</span></button>}
+          {checkoutError && <p className="plan-alert" role="alert">{messages.checkoutError}</p>}
+          {checkoutRateLimited && <p className="plan-alert" role="alert">{messages.checkoutRateLimited}</p>}
           <small>{messages.monthly}</small>
         </aside>
       </section>
 
       <section className="results-section" aria-live="polite" aria-busy={loading}>
-        {products && <div className="results-header"><div><p>{messages.results}</p><span>{products.length} {messages.resultCount}</span></div><button onClick={() => setProducts(null)}>{messages.clear}</button></div>}
-        {!loading && products === null && !error && <div className="empty"><span aria-hidden="true">⌕</span><p>{messages.emptyStart}</p></div>}
+        {products && <div className="results-header"><div><h2>{messages.results}</h2><span>{products.length} {messages.resultCount}</span></div><button onClick={() => setProducts(null)}>{messages.clear}</button></div>}
+        {!loading && products === null && !searchError && <div className="empty"><span aria-hidden="true">⌕</span><p>{messages.emptyStart}</p></div>}
         {!loading && products?.length === 0 && <div className="empty"><span aria-hidden="true">○</span><p>{messages.emptyResults}</p></div>}
         {loading && <div className="empty"><span className="spinner" aria-hidden="true" /><p>{messages.searching}</p></div>}
         {products && products.length > 0 && <div className="product-grid">{products.map((product) => <ProductCard key={product.id} product={product} messages={messages} />)}</div>}
       </section>
-      <footer><span>Foodscope</span><span>Data by Open Food Facts</span></footer>
+      <footer>
+        <span>Foodscope</span>
+        <span className="attribution">
+          {messages.attributionPrefix} <a href="https://world.openfoodfacts.org/">Open Food Facts</a>,
+          {' '}{messages.attributionLicense} <a href="https://opendatacommons.org/licenses/odbl/1-0/">ODbL</a>.
+          {' '}{messages.imageAttribution} <a href="https://creativecommons.org/licenses/by-sa/3.0/">CC BY-SA 3.0</a>.
+        </span>
+      </footer>
     </main>
   );
 }

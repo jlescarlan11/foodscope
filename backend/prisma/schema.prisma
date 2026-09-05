@@ -10,8 +10,13 @@ datasource db {
 model User {
   id                            String         @id @db.VarChar(36)
   email                         String         @unique @db.VarChar(191)
-  stripeCustomerId              String?        @unique @db.VarChar(191)
-  stripeSubscriptionId          String?        @unique @db.VarChar(191)
+  stripeCustomerId              String?        @unique @db.VarChar(255)
+  stripeSubscriptionId          String?        @unique @db.VarChar(255)
+  stripeCheckoutAttemptId       String?        @db.VarChar(36)
+  stripeCheckoutPriceId         String?        @db.VarChar(255)
+  stripeCheckoutSessionId       String?        @unique @db.VarChar(255)
+  stripeCheckoutSessionUrl      String?        @db.Text
+  stripeCheckoutExpiresAt       DateTime?
   subscriptionStatus            String         @default("inactive") @db.VarChar(32)
   subscriptionCurrentPeriodEnd  DateTime?
   createdAt                     DateTime       @default(now())
@@ -22,16 +27,18 @@ model User {
 model RecentSearch {
   id        Int      @id @default(autoincrement())
   userId    String   @db.VarChar(36)
+  requestId String?  @db.VarChar(36)
   query     String   @db.VarChar(120)
   locale    String   @db.VarChar(2)
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
+  @@unique([userId, requestId])
 }
 
 model StripeWebhookEvent {
-  id          String   @id @db.VarChar(191)
+  id          String   @id @db.VarChar(255)
   type        String   @db.VarChar(100)
   processedAt DateTime @default(now())
 }

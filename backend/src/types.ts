@@ -1,16 +1,9 @@
 import type Stripe from 'stripe';
-import type { Locale } from './constants.js';
+import type { Locale, NUTRITION_RULES } from './constants.js';
 
-export type Nutrition = Partial<{
-  energyKcal: number;
-  fat: number;
-  saturatedFat: number;
-  carbohydrates: number;
-  sugars: number;
-  protein: number;
-  salt: number;
-  sodium: number;
-}>;
+export type NutritionValue = { value: number; unit: 'g' | 'kcal' };
+
+export type Nutrition = Partial<Record<keyof typeof NUTRITION_RULES, NutritionValue>>;
 
 export type Product = {
   id: string;
@@ -26,25 +19,60 @@ export type DemoUser = {
   email: string;
   stripeCustomerId: string | null;
   stripeSubscriptionId: string | null;
+  stripeCheckoutAttemptId: string | null;
+  stripeCheckoutSessionId: string | null;
+  stripeCheckoutSessionUrl: string | null;
+  stripeCheckoutExpiresAt: Date | null;
   subscriptionStatus: string;
   subscriptionCurrentPeriodEnd: Date | null;
+};
+
+export type DemoUserState = Pick<
+  DemoUser,
+  'id' | 'subscriptionStatus' | 'subscriptionCurrentPeriodEnd'
+>;
+
+export type CheckoutAttempt = {
+  id: string;
+  expiresAt: Date;
+  sessionUrl: string | null;
+  priceId: string | null;
+  customerId: string | null;
 };
 
 export type RecentSearch = { id: number; query: string; locale: string; createdAt: Date };
 
 export interface Repository {
-  getDemoUser(): Promise<DemoUser | null>;
-  saveSearch(userId: string, query: string, locale: Locale): Promise<void>;
+  getDemoUser(): Promise<DemoUserState | null>;
+  getDemoUserForCheckout(): Promise<DemoUser | null>;
+  saveSearch(userId: string, requestId: string, query: string, locale: Locale): Promise<void>;
   getRecentSearches(userId: string, limit: number): Promise<RecentSearch[]>;
   setStripeCustomer(userId: string, customerId: string): Promise<void>;
-  processStripeEvent(event: Stripe.Event): Promise<void>;
+  replaceStripeCustomer(
+    userId: string,
+    expectedCustomerId: string,
+    expectedCheckoutAttemptId: string,
+    replacementCustomerId: string,
+  ): Promise<string>;
+  getOrCreateCheckoutAttempt(userId: string): Promise<CheckoutAttempt>;
+  completeCheckoutAttempt(
+    userId: string,
+    attemptId: string,
+    session: { id: string; url: string; expiresAt: Date },
+  ): Promise<void>;
+  releaseCheckoutAttempt(userId: string, attemptId: string): Promise<void>;
+  processStripeEvent(
+    event: Stripe.Event,
+    retrieveSubscription?: (subscriptionId: string) => Promise<Stripe.Subscription>,
+  ): Promise<void>;
 }
 
 export interface ProductProvider {
-  search(query: string, locale: Locale): Promise<Array<Omit<Product, 'nutritionLocked'>>>;
+  search(query: string, locale: Locale, signal?: AbortSignal): Promise<Array<Omit<Product, 'nutritionLocked'>>>;
 }
 
 export interface BillingProvider {
   createCheckout(user: DemoUser): Promise<{ url: string }>;
   constructEvent(body: Buffer, signature: string): Stripe.Event;
+  retrieveSubscription(subscriptionId: string): Promise<Stripe.Subscription>;
 }

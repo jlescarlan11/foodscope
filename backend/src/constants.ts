@@ -3,5 +3,49 @@ export const DEMO_USER_EMAIL = 'demo@foodscope.local';
 export const SUPPORTED_LOCALES = ['en', 'nl', 'de', 'fr'] as const;
 export type Locale = (typeof SUPPORTED_LOCALES)[number];
 
+const visibleTextCharacter = /[\p{L}\p{N}\p{P}\p{S}]/u;
+const unsafeTextCharacter = /[\p{Cc}\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u;
+
+export const isUsableText = (value: string) =>
+  visibleTextCharacter.test(value) && !unsafeTextCharacter.test(value);
+
+export const NUTRITION_RULES = {
+  energyKcal: { unit: 'kcal', maximum: 1_000 },
+  fat: { unit: 'g', maximum: 100 },
+  saturatedFat: { unit: 'g', maximum: 100 },
+  carbohydrates: { unit: 'g', maximum: 100 },
+  sugars: { unit: 'g', maximum: 100 },
+  protein: { unit: 'g', maximum: 100 },
+  salt: { unit: 'g', maximum: 100 },
+  sodium: { unit: 'g', maximum: 100 },
+} as const;
+
 export const isActiveSubscription = (status: string) =>
   status === 'active' || status === 'trialing';
+
+export const hasNutritionAccess = (status: string, currentPeriodEnd: Date | null, now = new Date()) =>
+  isActiveSubscription(status) &&
+  currentPeriodEnd instanceof Date &&
+  Number.isFinite(currentPeriodEnd.getTime()) &&
+  currentPeriodEnd > now;
+
+export const STRIPE_SUBSCRIPTION_STATUSES = [
+  'active',
+  'canceled',
+  'incomplete',
+  'incomplete_expired',
+  'past_due',
+  'paused',
+  'trialing',
+  'unpaid',
+] as const;
+
+export const normalizeStripeSubscriptionStatus = (status: unknown) =>
+  typeof status === 'string' && STRIPE_SUBSCRIPTION_STATUSES.some((value) => value === status)
+    ? status
+    : 'unknown';
+
+export const CHECKOUT_ELIGIBLE_STATUSES = ['inactive', 'canceled', 'incomplete_expired'] as const;
+
+export const canStartCheckout = (status: string) =>
+  CHECKOUT_ELIGIBLE_STATUSES.some((eligibleStatus) => eligibleStatus === status);

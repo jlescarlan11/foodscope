@@ -1,29 +1,26 @@
 import { PrismaClient } from '@prisma/client';
-import { DEMO_USER_EMAIL, DEMO_USER_ID } from '../src/constants.js';
+import { ensureDemoUser } from '../src/demo-user.js';
 
 const prisma = new PrismaClient();
 
 async function main() {
-  await prisma.stripeWebhookEvent.deleteMany();
-  await prisma.recentSearch.deleteMany();
-  await prisma.user.deleteMany({ where: { id: { not: DEMO_USER_ID } } });
-  await prisma.user.upsert({
-    where: { id: DEMO_USER_ID },
-    update: {
-      email: DEMO_USER_EMAIL,
-      stripeCustomerId: null,
-      stripeSubscriptionId: null,
-      subscriptionStatus: 'inactive',
-      subscriptionCurrentPeriodEnd: null,
-    },
-    create: { id: DEMO_USER_ID, email: DEMO_USER_EMAIL, subscriptionStatus: 'inactive' },
-  });
+  await ensureDemoUser(prisma);
 }
 
-main()
-  .then(() => prisma.$disconnect())
-  .catch(async (error: unknown) => {
+async function run() {
+  try {
+    await main();
+  } catch {
     console.error('Unable to seed the demo user.');
-    await prisma.$disconnect();
-    throw error;
-  });
+    process.exitCode = 1;
+  } finally {
+    try {
+      await prisma.$disconnect();
+    } catch {
+      console.error('Unable to close the database connection.');
+      process.exitCode = 1;
+    }
+  }
+}
+
+void run();

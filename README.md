@@ -23,11 +23,13 @@ Express API
   └── Prisma → MySQL (demo user, subscription state, recent searches)
 ```
 
-The browser never calls Open Food Facts or Stripe APIs directly. Express validates the locale/query, normalizes the small Open Food Facts response, loads subscription state from MySQL, and removes the complete `nutrition` property unless the stored status is `active` or `trialing`.
+The browser never calls Open Food Facts or Stripe APIs directly. Express validates the locale/query, normalizes the small Open Food Facts response, loads subscription state from MySQL, and removes the complete `nutrition` property unless the stored status is `active` or `trialing` with a valid future billing-period end. Every completed search also returns that request's authoritative public account state, including when no result has nutrition, so the browser cannot retain an older entitlement display; the frontend rejects the response and invalidates its plan display if that snapshot is absent or malformed. Missing, unrecognized, or elapsed subscription data fails closed; unknown Stripe status values are durably normalized to `unknown`. API responses use `Cache-Control: no-store` so a prior entitled response cannot survive revocation in a browser or intermediary cache. Every returned nutrient carries an explicit Open Food Facts `_100g` value and unit from a row that declares a `100g` basis. Package quantity metadata is deliberately ignored because it describes how the product is packaged, not the nutrition basis; serving and prepared-product fields are never requested or normalized.
+Impossible upstream values are treated as unavailable: mass nutrients cannot exceed 100 g per 100 g,
+and energy is conservatively capped at 1,000 kcal per 100 g.
 
 ## Prerequisites
 
-- Node.js 20 or newer
+- Node.js 24 LTS
 - npm 10 or newer
 - Docker with Compose
 - Optional for the subscription walkthrough: a Stripe account in test mode and the Stripe CLI
@@ -39,6 +41,7 @@ git clone <repository-url>
 cd foodscope
 cp .env.example backend/.env
 cp .env.example frontend/.env.local
+# Replace OPEN_FOOD_FACTS_USER_AGENT in backend/.env with a real contact.
 docker compose up -d
 npm install
 npm run db:generate
@@ -47,33 +50,36 @@ npm run db:seed
 npm run dev
 ```
 
-Open <http://localhost:3000>. The API runs at <http://localhost:4000>. MySQL may take a few seconds to become healthy after its first start; `docker compose ps` shows its status.
+Open <http://localhost:3000>. The API runs at <http://localhost:4000>. MySQL is published only on the workstation loopback interface and may take a few seconds to become healthy after its first start; `docker compose ps` shows its status.
 
 ## Environment variables
 
-The committed `.env.example` contains fake placeholders only.
+The committed `.env.example` contains fake placeholders only. Replace
+`OPEN_FOOD_FACTS_USER_AGENT` with an application/version and a monitored contact before starting
+the backend; the placeholder is rejected so anonymous traffic cannot be sent accidentally.
 
 | Variable | Used by | Purpose |
 | --- | --- | --- |
 | `DATABASE_URL` | Backend/Prisma | Local MySQL connection |
 | `PORT` | Backend | Express port (default `4000`) |
-| `FRONTEND_URL` | Backend | Allowed CORS origin and Checkout return URL |
-| `NEXT_PUBLIC_API_URL` | Frontend | Public base URL of the Express API |
+| `HOST` | Backend | Listen address; defaults to loopback locally and `0.0.0.0` in production |
+| `FRONTEND_URL` | Backend | One absolute HTTP(S) origin used for CORS and Checkout return URLs; required in production |
+| `NEXT_PUBLIC_API_URL` | Frontend | Absolute HTTP(S) origin of the Express API; required for production builds |
 | `STRIPE_SECRET_KEY` | Backend | Stripe test key; a least-privilege restricted key is preferred where supported |
 | `STRIPE_WEBHOOK_SECRET` | Backend | Signing secret from the Stripe webhook endpoint/CLI |
 | `STRIPE_PRICE_ID` | Backend | Recurring monthly Price ID |
 | `OPEN_FOOD_FACTS_USER_AGENT` | Backend | Identifiable User-Agent required for responsible API access |
 
-The backend and frontend receive separate local env copies because workspace tools run from their package directories. Deployed environments should set variables through the host's protected environment configuration and expose only `NEXT_PUBLIC_API_URL` to the browser.
+The backend and frontend receive separate local env copies because workspace tools run from their package directories. Deployed environments should set variables through the host's protected environment configuration and expose only `NEXT_PUBLIC_API_URL` to the browser. Non-loopback production frontend/API origins must use HTTPS; HTTP remains available for local verification. Missing, structurally invalid, or unreachable MySQL configuration fails before the API listens without printing its value. Billing is disabled when all Stripe values are absent; partial or structurally malformed configuration fails startup before provider work. Stripe accepts test-mode secret or restricted keys and refuses either live-mode prefix; verified live-mode or malformed-mode webhook events are acknowledged without processing. Use a least-privilege restricted test key where possible.
 
 ## Database
 
-`User` stores the fixed demo account and Stripe subscription state. `RecentSearch` belongs to that user and is indexed by user/time. `StripeWebhookEvent` stores Stripe event IDs so repeated webhook delivery is harmless.
+`User` stores the fixed demo account and Stripe subscription state. `RecentSearch` belongs to that user and is indexed by user/time. New search operations carry a unique request ID so retrying after a lost response cannot append the same history entry twice; the nullable column preserves existing rows. `StripeWebhookEvent` stores Stripe event IDs so repeated webhook delivery is harmless. API startup and the optional seed create the demo user only when missing and preserve all existing subscription, webhook, and search data.
 
 ```bash
 npm run db:generate   # generate Prisma Client
 npm run db:migrate    # apply committed migrations
-npm run db:seed       # reset assessment data and upsert the one fixed user
+npm run db:seed       # create the one fixed user if it does not exist
 ```
 
 The deterministic ID is `00000000-0000-4000-8000-000000000001`; there is intentionally no API that accepts a user ID.
@@ -89,7 +95,7 @@ npm run dev -w backend      # Express only
 ## Stripe test setup
 
 1. In Stripe test mode, create one Product and a recurring monthly Price.
-2. Put its `price_...` ID and a test-mode backend key in `backend/.env`. Use a restricted test key with only the permissions needed to create/read Customers and Checkout Sessions when possible.
+2. Put its `price_...` ID and a test-mode backend key in `backend/.env`. Use a restricted test key with only the permissions needed to read Prices, create/read Customers and Checkout Sessions, and read/list Subscriptions when possible.
 3. Forward signed events locally:
 
    ```bash
@@ -98,15 +104,21 @@ npm run dev -w backend      # Express only
 
 4. Copy the printed `whsec_...` into `STRIPE_WEBHOOK_SECRET`, restart the API, select **Unlock nutrition**, and use Stripe's standard test card `4242 4242 4242 4242` with any future expiry and CVC.
 
-Checkout uses `mode: subscription`, the configured recurring Price, a reused Stripe Customer, and demo-user metadata on both the Session and Subscription. No payment-method list is hard-coded, so Stripe's test Dashboard settings control eligible methods. The handler verifies the raw body before processing `checkout.session.completed` and `customer.subscription.created|updated|deleted`. Event IDs make retries idempotent.
+Checkout uses `mode: subscription`, the configured recurring Price, a reused Stripe Customer, and demo-user metadata on both the Session and Subscription. The browser keeps one Checkout POST in flight, so rapid repeated activation cannot replace it or duplicate downstream work. Before returning or creating a Session, the backend verifies once per process that the configured test Price is active and recurs every month; concurrent checks share that read, transient failures remain retryable, and an inactive or structurally invalid Price creates no Customer or Session. Checkout creation requires the browser's `Origin` to exactly match `FRONTEND_URL`, preventing another site from triggering Stripe work through a cross-site POST. A durable one-hour attempt records its exact Price, and Stripe idempotency keys make concurrent or retried requests reuse one Customer and open Checkout Session while preserving Stripe's required minimum expiry window through preflight work. Before reusing either a stored Customer or its Session URL, Foodscope retrieves the Customer from Stripe and verifies its test-mode demo-user metadata. A missing or different owner fails closed before Customer details or a Session can be exposed. Every newly created or replacement Customer must return the expected test-mode demo-user ownership before its ID can be persisted. A Customer deleted in the test Dashboard is replaced through a stable hashed idempotency key and an atomic database compare-and-set; the unusable Session attempt is cleared and rebuilt against the replacement, so database retries and concurrent processes converge instead of leaving Checkout unavailable or multiplying resources. A still-open attempt from another configured Price fails closed until its expiry instead of returning the wrong Session or creating a competing subscription. Existing pre-migration attempts have no Price binding and receive the same safe treatment. If Stripe definitively rejects an unsaved attempt because that window became too short, Foodscope atomically replaces it once; ambiguous failures keep the original key so they cannot create a duplicate Session. Before replacing an expired attempt, Foodscope requires a structurally complete Stripe list response proving that every subscription is terminal; incomplete, paginated, unknown, or malformed results fail closed. A newly created Session is persisted only when Stripe returns the exact open, test-mode subscription Session for the expected Customer, demo user, and expiry; malformed or misattributed output retains the idempotency attempt and fails closed. No payment-method list is hard-coded, so Stripe's test Dashboard settings control eligible methods. The handler verifies the raw body before processing `checkout.session.completed|expired`, `customer.deleted`, and `customer.subscription.created|updated|deleted`. A verified expiration atomically clears only its exact Customer and Session attempt, allowing immediate retry without letting a stale event erase a newer Session. A verified Customer deletion immediately revokes the mapped Customer's local entitlement without an additional Stripe read. Subscription events lock the mapped demo-user row and then retrieve current Stripe state; only the stored Subscription ID or a matching durable Checkout attempt can establish authority, and only the configured monthly test-Price item supplies the entitlement period, so concurrent, out-of-order, unrelated, or changed-plan subscriptions cannot grant access. Stripe identifiers use 255-character, case-sensitive storage as required for opaque IDs; Event IDs make retries idempotent. Bounded Stripe/transaction timeouts turn provider failures into safe webhook retries. The backend Stripe key therefore needs read access to Prices and Customers and read/list access to Subscriptions in addition to Customer and Checkout Session creation.
 
-The Checkout success redirect is never treated as authorization. On return, the frontend requests `/api/user`; only verified webhook-synchronized MySQL state unlocks nutrition. For a production launch, review tax obligations and configure Stripe Tax only after adding the applicable tax registrations.
+New Checkout workflows are limited to ten per hour per API process after in-flight requests are coalesced. Excess requests return `429` with `Retry-After` before Checkout-attempt or Stripe work, bounding repeated Customer validation against [Stripe's lower sandbox quota](https://docs.stripe.com/rate-limits) while leaving normal demo retries available.
+
+Leave all three Stripe variables empty when not testing billing. The API then reports billing as unavailable and the UI does not offer a Checkout action. When billing is configured, Checkout is offered only for the initial inactive state or after a terminal `canceled`/`incomplete_expired` subscription; other states fail closed without another Stripe call.
+
+The Checkout success redirect is never treated as authorization. On return, the frontend requests `/api/user`; only verified webhook-synchronized MySQL state unlocks nutrition. Extra bounded webhook-settlement polling requires a recent, tab-local Checkout initiation marker, so an untrusted success URL performs only the normal account read. For a production launch, review tax obligations and configure Stripe Tax only after adding the applicable tax registrations.
 
 ## Internationalization
 
 The manually selectable locales are exactly English (`en`), Dutch (`nl`), German (`de`), and French (`fr`). One typed dictionary translates application-owned search, state, subscription, nutrition, and recent-search copy.
 
-Each search sends the selected locale to Express. Product names follow this fallback:
+Each search sends the selected locale to Express. Open Food Facts full-text search indexes a product's
+main language, so Express accepts only rows whose `lang` matches that locale. Product names then
+follow this fallback:
 
 ```text
 Open Food Facts product_name_<selected locale>
@@ -123,17 +135,36 @@ npm test
 npm run typecheck
 npm run lint
 npm run build
+npm run test:coverage -w backend # optional local HTML coverage report
 ```
+
+GitHub Actions runs these checks on pull requests and `main`, cancels superseded runs, replays all
+migrations on disposable MySQL, and then runs the database integration suites sequentially.
 
 The behavioral suite covers invalid search input, Open Food Facts normalization and locale fallback, malformed/missing fields, inactive nutrition redaction, active nutrition delivery, search persistence/retrieval, safe upstream errors, webhook-driven subscription synchronization, invalid webhook signatures, and a frontend locale/search interaction. External requests are mocked during normal tests.
 
 ## Technical decisions
 
 - Product records are not persisted; Open Food Facts remains the product source of truth.
-- A small DTO prevents leaking the large upstream payload or provider-specific field names.
+- The UI visibly attributes Open Food Facts data under ODbL and product images under CC BY-SA 3.0.
+- A selected-locale field request, 1 MiB response ceiling, and small DTO bound upstream transfer and
+  prevent leaking the large provider payload or provider-specific field names.
+- Nutrition is exposed only when Open Food Facts explicitly declares a `100g` basis; its legacy
+  `_100g` keys can represent 100 ml for liquids, so volume, serving, and ambiguous rows fail closed.
+- Remote product-image optimization retains the server-side privacy boundary but rejects source
+  responses larger than 5 MB before they can consume the optimizer's much larger default allowance.
 - The Express response is reconstructed from explicitly public product fields for inactive users, so restricted values cannot cross the API boundary.
+- Product and search text rejects invisible bidirectional formatting controls that can reorder shared
+  labels, while preserving ordinary Unicode and emoji composition.
 - Stripe Customer and Subscription metadata plus stored Stripe IDs resolve events to the known user; clients cannot assert identity or entitlement.
 - Checkout configuration failures return safe status messages without exposing provider objects, secrets, or stack traces.
+- Browser API calls have bounded, workflow-specific deadlines; stalled account, search, and Checkout
+  requests return to an explicit retry path instead of leaving controls permanently busy.
+- Asynchronous plan, search, and Checkout state changes use status or alert semantics so assistive
+  technology receives the same completion and recovery feedback as sighted users.
+- The frontend sets framing, base/form, referrer, MIME-sniffing, and unused-capability restrictions on
+  every document response, and keeps keyboard focus indicators distinct across its light and dark
+  surfaces; transport security remains the deployment host's responsibility.
 
 ## Intentional simplifications and known limitations
 
@@ -141,7 +172,7 @@ The behavioral suite covers invalid search input, Open Food Facts normalization 
 - Stripe test mode only; there is one monthly Price and no Customer Portal/cancellation UI.
 - Recent searches are an eight-item view of persisted history, not deduplicated or user-editable.
 - Open Food Facts coverage and translations vary by contributor; missing data stays visibly unavailable.
-- The API has assessment-scale CORS, validation, body limits, and security headers, but no public-internet rate limiter.
+- The API has assessment-scale CORS, validation, body limits, security headers, and bounded HTTP connection/request lifetimes. Search and Checkout are origin-checked POST workflows so third-party pages cannot trigger their provider calls or demo-user writes. The Open Food Facts adapter enforces its documented per-process search budget, but there is no distributed public-internet rate limiter.
 - Tax calculation is intentionally not enabled; real charging would require registrations and a tax review.
 
 ## Project structure

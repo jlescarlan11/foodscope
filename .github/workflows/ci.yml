@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: foodscope_ci
+          MYSQL_USER: app
+          MYSQL_PASSWORD: app
+          MYSQL_ROOT_PASSWORD: local_root_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -plocal_root_password"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run db:generate
+        env:
+          DATABASE_URL: mysql://app:app@127.0.0.1:3306/foodscope_ci
+      - name: Replay migrations on disposable MySQL
+        run: npm run db:migrate -w backend
+        env:
+          DATABASE_URL: mysql://app:app@127.0.0.1:3306/foodscope_ci
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run build
+        env:
+          NEXT_PUBLIC_API_URL: https://api.example.test
+      - name: Verify database concurrency, ordering, and initialization
+        run: npm run test -w backend -- --run tests/repository.integration.test.ts tests/demo-user.integration.test.ts
+        env:
+          TEST_DATABASE_URL: mysql://app:app@127.0.0.1:3306/foodscope_ci
