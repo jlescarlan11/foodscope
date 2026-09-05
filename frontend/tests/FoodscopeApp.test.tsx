@@ -5,8 +5,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FoodscopeApp, REQUEST_TIMEOUT_MS } from '@/components/FoodscopeApp';
 
 vi.mock('next/image', () => ({
-  default: ({ src, alt, onError }: { src: string; alt: string; onError?: () => void }) => (
-    <button type="button" aria-label={alt} data-image-src={src} onClick={onError} />
+  default: ({ src, alt, sizes, onError }: {
+    src: string; alt: string; sizes?: string; onError?: () => void;
+  }) => (
+    <button type="button" aria-label={alt} data-image-src={src} data-sizes={sizes} onClick={onError} />
   ),
 }));
 
@@ -903,7 +905,12 @@ describe('Foodscope locale switching', () => {
 
     await userEvent.type(screen.getByLabelText('Search products'), 'oats');
     await userEvent.click(screen.getByRole('button', { name: /^Search/ }));
-    await userEvent.click(await screen.findByRole('button', { name: 'Oats' }));
+    const image = await screen.findByRole('button', { name: 'Oats' });
+    expect(image).toHaveAttribute(
+      'data-sizes',
+      '(max-width: 620px) 100vw, (max-width: 900px) 50vw, 33vw',
+    );
+    await userEvent.click(image);
 
     expect(screen.queryByRole('button', { name: 'Oats' })).not.toBeInTheDocument();
   });

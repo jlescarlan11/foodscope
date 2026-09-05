@@ -160,7 +160,7 @@ function ProductCard({ product, messages }: { product: Product; messages: Messag
   return (
     <article className="product-card">
       <div className="product-image-wrap">
-        {showImage ? <Image src={product.image!} alt={product.name ?? messages.unavailable} fill sizes="(max-width: 720px) 100vw, 33vw" className="product-image" onError={() => setFailedImage(product.image)} /> : <span className="image-fallback" aria-hidden="true">◌</span>}
+        {showImage ? <Image src={product.image!} alt={product.name ?? messages.unavailable} fill sizes="(max-width: 620px) 100vw, (max-width: 900px) 50vw, 33vw" className="product-image" onError={() => setFailedImage(product.image)} /> : <span className="image-fallback" aria-hidden="true">◌</span>}
       </div>
       <div className="product-content">
         <p className="brand">{product.brand ?? messages.unknownBrand}</p>
