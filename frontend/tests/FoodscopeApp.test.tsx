@@ -447,6 +447,29 @@ describe('Foodscope locale switching', () => {
     expect(window.location.search).toBe('?checkout=success');
   });
 
+  it('does not poll repeatedly when Checkout cannot be configured', async () => {
+    vi.useFakeTimers();
+    window.history.replaceState(null, '', '/?checkout=success');
+    let accountReads = 0;
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      if (String(input).includes('/api/searches/recent')) {
+        return { ok: true, json: async () => ({ searches: [] }) } as Response;
+      }
+      accountReads += 1;
+      return {
+        ok: true,
+        json: async () => accountState({ billingAvailable: false, checkoutAvailable: false }),
+      } as Response;
+    }));
+
+    render(<FoodscopeApp />);
+    await act(async () => vi.advanceTimersByTimeAsync(15_000));
+
+    expect(screen.getByText('Stripe test Checkout is not configured.')).toBeInTheDocument();
+    expect(accountReads).toBe(1);
+    expect(window.location.search).toBe('');
+  });
+
   it('does not present an earlier account result after later Checkout polling fails', async () => {
     vi.useFakeTimers();
     window.history.replaceState(null, '', '/?checkout=success');

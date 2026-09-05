@@ -224,7 +224,7 @@ export function FoodscopeApp() {
         if (!isUserState(candidate)) throw new Error('Invalid account response');
         loadedAccount = candidate;
         if (controller.signal.aborted || requestId !== accountSequence.current) return;
-        if (loadedAccount.nutritionAccess) break;
+        if (loadedAccount.nutritionAccess || !loadedAccount.billingAvailable) break;
       } catch {
         if (controller.signal.aborted || requestId !== accountSequence.current) return;
         loadedAccount = null;
