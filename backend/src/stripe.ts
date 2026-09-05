@@ -56,6 +56,7 @@ function createdCustomerId(value: unknown, demoUserId: string) {
   const customer = value as Record<string, unknown>;
   return isStripeOpaqueId(customer.id) &&
     customer.object === 'customer' &&
+    customer.deleted !== true &&
     customer.livemode === false &&
     typeof customer.metadata === 'object' && customer.metadata !== null &&
     (customer.metadata as Record<string, unknown>).demoUserId === demoUserId

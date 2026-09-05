@@ -303,6 +303,7 @@ describe('Stripe Checkout creation', () => {
     { object: 'invoice' },
     { id: '' },
     { id: 'c'.repeat(256) },
+    { deleted: true },
     { livemode: true },
     { metadata: {} },
     { metadata: { demoUserId: 'unexpected-user' } },
