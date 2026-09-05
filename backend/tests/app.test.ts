@@ -25,6 +25,7 @@ function harness(status = 'inactive') {
   const searches: RecentSearch[] = [];
   const repository: Repository = {
     getDemoUser: vi.fn(async () => user),
+    getDemoUserForCheckout: vi.fn(async () => user),
     saveSearch: vi.fn(async (_userId: string, _requestId: string, query: string, locale: Locale) => {
       searches.unshift({ id: searches.length + 1, query, locale, createdAt: new Date() });
     }),
@@ -303,7 +304,7 @@ describe('Foodscope API', () => {
 
     expect(missingOrigin.status).toBe(403);
     expect(untrustedOrigin.status).toBe(403);
-    expect(setup.repository.getDemoUser).not.toHaveBeenCalled();
+    expect(setup.repository.getDemoUserForCheckout).not.toHaveBeenCalled();
     expect(setup.dependencies.billing!.createCheckout).not.toHaveBeenCalled();
   });
 
@@ -313,7 +314,7 @@ describe('Foodscope API', () => {
     let releaseAccountRead: (() => void) | undefined;
     const accountRead = new Promise<void>((resolve) => { accountReadStarted = resolve; });
     const release = new Promise<void>((resolve) => { releaseAccountRead = resolve; });
-    vi.mocked(setup.repository.getDemoUser).mockImplementationOnce(async () => {
+    vi.mocked(setup.repository.getDemoUserForCheckout).mockImplementationOnce(async () => {
       accountReadStarted?.();
       await release;
       return baseUser;

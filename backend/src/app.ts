@@ -7,7 +7,7 @@ import type { AppConfig } from './config.js';
 import { canStartCheckout, hasNutritionAccess, NUTRITION_RULES, SUPPORTED_LOCALES } from './constants.js';
 import { ProductProviderRateLimitError } from './open-food-facts.js';
 import { CheckoutUnavailableError } from './errors.js';
-import type { BillingProvider, DemoUser, Nutrition, ProductProvider, Repository } from './types.js';
+import type { BillingProvider, DemoUserState, Nutrition, ProductProvider, Repository } from './types.js';
 
 export type AppDependencies = {
   config: AppConfig;
@@ -48,7 +48,7 @@ function publicNutrition(value: Nutrition | undefined) {
   return Object.keys(nutrition).length ? nutrition : undefined;
 }
 
-function publicAccount(user: DemoUser, billingAvailable: boolean) {
+function publicAccount(user: DemoUserState, billingAvailable: boolean) {
   return {
     nutritionAccess: hasNutritionAccess(
       user.subscriptionStatus,
@@ -264,7 +264,7 @@ export function createApp(deps: AppDependencies) {
       res.once('close', () => {
         if (!res.writableEnded) responseClosed = true;
       });
-      const user = await deps.repository.getDemoUser();
+      const user = await deps.repository.getDemoUserForCheckout();
       if (responseClosed) return;
       if (!user) {
         res.status(503).json({ error: 'Demo user is not initialized' });

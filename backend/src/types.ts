@@ -27,12 +27,18 @@ export type DemoUser = {
   subscriptionCurrentPeriodEnd: Date | null;
 };
 
+export type DemoUserState = Pick<
+  DemoUser,
+  'id' | 'subscriptionStatus' | 'subscriptionCurrentPeriodEnd'
+>;
+
 export type CheckoutAttempt = { id: string; expiresAt: Date; sessionUrl: string | null };
 
 export type RecentSearch = { id: number; query: string; locale: string; createdAt: Date };
 
 export interface Repository {
-  getDemoUser(): Promise<DemoUser | null>;
+  getDemoUser(): Promise<DemoUserState | null>;
+  getDemoUserForCheckout(): Promise<DemoUser | null>;
   saveSearch(userId: string, requestId: string, query: string, locale: Locale): Promise<void>;
   getRecentSearches(userId: string, limit: number): Promise<RecentSearch[]>;
   setStripeCustomer(userId: string, customerId: string): Promise<void>;

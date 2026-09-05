@@ -95,7 +95,25 @@ async function lockSubscriptionUser(
 
 export function createRepository(database: typeof prisma): Repository {
   return {
-    getDemoUser: () => database.user.findUnique({ where: { id: DEMO_USER_ID } }),
+    getDemoUser: () => database.user.findUnique({
+      where: { id: DEMO_USER_ID },
+      select: { id: true, subscriptionStatus: true, subscriptionCurrentPeriodEnd: true },
+    }),
+    getDemoUserForCheckout: () => database.user.findUnique({
+      where: { id: DEMO_USER_ID },
+      select: {
+        id: true,
+        email: true,
+        stripeCustomerId: true,
+        stripeSubscriptionId: true,
+        stripeCheckoutAttemptId: true,
+        stripeCheckoutSessionId: true,
+        stripeCheckoutSessionUrl: true,
+        stripeCheckoutExpiresAt: true,
+        subscriptionStatus: true,
+        subscriptionCurrentPeriodEnd: true,
+      },
+    }),
     async saveSearch(userId: string, requestId: string, query: string, locale: Locale) {
       try {
         await database.recentSearch.create({ data: { userId, requestId, query, locale } });

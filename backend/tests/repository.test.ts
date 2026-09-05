@@ -24,6 +24,35 @@ function subscriptionEvent(id = 'evt_stale') {
 }
 
 describe('Stripe webhook repository', () => {
+  it('selects only workflow-required demo-user columns', async () => {
+    const findUnique = vi.fn(async () => null);
+    const database = { user: { findUnique } } as unknown as typeof prisma;
+    const subject = createRepository(database);
+
+    await subject.getDemoUser();
+    await subject.getDemoUserForCheckout();
+
+    expect(findUnique).toHaveBeenNthCalledWith(1, {
+      where: { id: DEMO_USER_ID },
+      select: { id: true, subscriptionStatus: true, subscriptionCurrentPeriodEnd: true },
+    });
+    expect(findUnique).toHaveBeenNthCalledWith(2, {
+      where: { id: DEMO_USER_ID },
+      select: {
+        id: true,
+        email: true,
+        stripeCustomerId: true,
+        stripeSubscriptionId: true,
+        stripeCheckoutAttemptId: true,
+        stripeCheckoutSessionId: true,
+        stripeCheckoutSessionUrl: true,
+        stripeCheckoutExpiresAt: true,
+        subscriptionStatus: true,
+        subscriptionCurrentPeriodEnd: true,
+      },
+    });
+  });
+
   it('reserves a stable one-hour Checkout window', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2030-01-01T00:00:00.000Z'));
