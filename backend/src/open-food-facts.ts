@@ -4,6 +4,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 type UnknownRecord = Record<string, unknown>;
 const MAX_RESPONSE_BYTES = 1_000_000;
+const MAX_PRODUCTS = 20;
 
 const isRecord = (value: unknown): value is UnknownRecord =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -141,7 +142,7 @@ export class OpenFoodFactsProvider implements ProductProvider {
       action: 'process',
       json: '1',
       lc: locale,
-      page_size: '20',
+      page_size: String(MAX_PRODUCTS),
       fields: [
         'code',
         'product_name',
@@ -191,6 +192,7 @@ export class OpenFoodFactsProvider implements ProductProvider {
       if (!product || seenIds.has(product.id)) continue;
       seenIds.add(product.id);
       products.push(product);
+      if (products.length === MAX_PRODUCTS) break;
     }
     return products;
   }

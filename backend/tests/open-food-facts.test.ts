@@ -82,6 +82,24 @@ describe('Open Food Facts normalization', () => {
     }]);
   });
 
+  it('never returns more products than the requested page size', async () => {
+    const upstreamProducts = Array.from({ length: 25 }, (_value, index) => ({
+      code: `product-${index + 1}`,
+      product_name: `Product ${index + 1}`,
+    }));
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      void input;
+      return new Response(JSON.stringify({ products: upstreamProducts }), { status: 200 });
+    });
+    const provider = new OpenFoodFactsProvider('FoodscopeTest/1.0', fetcher);
+
+    const products = await provider.search('many', 'en');
+
+    expect(products).toHaveLength(20);
+    expect(products.at(-1)?.id).toBe('product-20');
+    expect(new URL(String(fetcher.mock.calls[0]?.[0])).searchParams.get('page_size')).toBe('20');
+  });
+
   it('cancels an oversized upstream response instead of buffering it without a limit', async () => {
     const cancel = vi.fn(async () => undefined);
     const reader = {
