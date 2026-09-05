@@ -583,9 +583,10 @@ describe('Foodscope locale switching', () => {
 
     render(<FoodscopeApp />);
 
-    expect(await screen.findByRole('status')).toHaveTextContent(
+    const cancellation = await screen.findByText(
       'Checkout was canceled. Your plan was not changed.',
     );
+    expect(cancellation).toHaveAttribute('role', 'status');
     expect(await screen.findByRole('button', { name: 'Unlock nutrition' })).toBeInTheDocument();
     expect(accountReads).toBe(1);
     expect(window.location.search).toBe('');
@@ -610,6 +611,19 @@ describe('Foodscope locale switching', () => {
       json: async () => accountState(),
     } as Response));
     expect(await screen.findByRole('button', { name: 'Unlock nutrition' })).toBeInTheDocument();
+  });
+
+  it('announces asynchronous plan-state changes to assistive technology', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const body = String(input).includes('/api/user')
+        ? accountState({ nutritionAccess: true, checkoutAvailable: false })
+        : { searches: [] };
+      return { ok: true, json: async () => body } as Response;
+    }));
+
+    render(<FoodscopeApp />);
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Nutrition unlocked');
   });
 
   it('offers a retry instead of Checkout when account state cannot be loaded', async () => {

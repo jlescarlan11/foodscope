@@ -152,6 +152,8 @@ The behavioral suite covers invalid search input, Open Food Facts normalization 
 - Checkout configuration failures return safe status messages without exposing provider objects, secrets, or stack traces.
 - Browser API calls have bounded, workflow-specific deadlines; stalled account, search, and Checkout
   requests return to an explicit retry path instead of leaving controls permanently busy.
+- Asynchronous plan, search, and Checkout state changes use status or alert semantics so assistive
+  technology receives the same completion and recovery feedback as sighted users.
 - The frontend sets framing, base/form, referrer, MIME-sniffing, and unused-capability restrictions on
   every document response, and keeps keyboard focus indicators distinct across its light and dark
   surfaces; transport security remains the deployment host's responsibility.
