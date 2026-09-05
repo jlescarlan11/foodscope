@@ -147,7 +147,7 @@ The behavioral suite covers invalid search input, Open Food Facts normalization 
 - Stripe test mode only; there is one monthly Price and no Customer Portal/cancellation UI.
 - Recent searches are an eight-item view of persisted history, not deduplicated or user-editable.
 - Open Food Facts coverage and translations vary by contributor; missing data stays visibly unavailable.
-- The API has assessment-scale CORS, validation, body limits, and security headers. The Open Food Facts adapter enforces its documented per-process search budget, but there is no distributed public-internet rate limiter.
+- The API has assessment-scale CORS, validation, body limits, security headers, and bounded HTTP connection/request lifetimes. The Open Food Facts adapter enforces its documented per-process search budget, but there is no distributed public-internet rate limiter.
 - Tax calculation is intentionally not enabled; real charging would require registrations and a tax review.
 
 ## Project structure

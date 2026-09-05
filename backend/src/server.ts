@@ -4,6 +4,7 @@ import { OpenFoodFactsProvider } from './open-food-facts.js';
 import { prisma } from './prisma.js';
 import { repository } from './repository.js';
 import { createBillingProvider } from './stripe.js';
+import { configureHttpServer } from './http-server.js';
 
 const config = loadConfig();
 
@@ -26,6 +27,7 @@ async function start() {
   const server = app.listen(config.port, () => {
     console.log(`Foodscope API listening on http://localhost:${config.port}`);
   });
+  configureHttpServer(server);
   server.once('error', () => {
     console.error('Foodscope API failed to listen');
     process.exitCode = 1;
