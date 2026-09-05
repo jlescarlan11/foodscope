@@ -42,6 +42,7 @@ function checkoutEvent(id: string, sessionId: string) {
     type: 'checkout.session.completed',
     data: { object: {
       id: sessionId,
+      object: 'checkout.session',
       customer: 'cus_integration',
       subscription: 'sub_checkout',
       metadata: { demoUserId: DEMO_USER_ID },
@@ -463,6 +464,7 @@ integration('Repository with MySQL', () => {
       type: 'checkout.session.expired',
       data: { object: {
         id: 'cs_older_integration',
+        object: 'checkout.session',
         customer: 'cus_integration',
         metadata: { demoUserId: DEMO_USER_ID },
         livemode: false,
@@ -481,6 +483,7 @@ integration('Repository with MySQL', () => {
       type: 'checkout.session.expired',
       data: { object: {
         id: 'cs_expired_integration',
+        object: 'checkout.session',
         customer: 'cus_integration',
         metadata: { demoUserId: DEMO_USER_ID },
         livemode: false,
@@ -514,6 +517,7 @@ integration('Repository with MySQL', () => {
       type: 'checkout.session.completed',
       data: { object: {
         id: 'cs_malformed_integration',
+        object: 'checkout.session',
         customer: 'cus_integration',
         subscription: 's'.repeat(256),
         metadata: { demoUserId: DEMO_USER_ID },

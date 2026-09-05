@@ -298,6 +298,7 @@ export function createRepository(database: typeof prisma, stripePriceId?: string
             const metadata = isRecord(session) && isRecord(session.metadata) ? session.metadata : null;
             if (
               isRecord(session) && sessionId && customerId && subscriptionId &&
+              session.object === 'checkout.session' &&
               session.livemode === false &&
               session.mode === 'subscription' &&
               session.status === 'complete' &&
@@ -325,6 +326,7 @@ export function createRepository(database: typeof prisma, stripePriceId?: string
               : null;
             if (
               isRecord(session) && sessionId && customerId &&
+              session.object === 'checkout.session' &&
               session.livemode === false &&
               session.mode === 'subscription' &&
               session.status === 'expired' &&

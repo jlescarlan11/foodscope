@@ -763,6 +763,7 @@ describe('Stripe webhook repository', () => {
       type: 'checkout.session.expired',
       data: { object: {
         id: 'cs_expired',
+        object: 'checkout.session',
         customer: 'cus_demo',
         metadata: { demoUserId: DEMO_USER_ID },
         livemode: false,
@@ -790,6 +791,7 @@ describe('Stripe webhook repository', () => {
   });
 
   it.each([
+    ['non-Session object', { object: 'invoice', livemode: false, mode: 'subscription', status: 'expired' }],
     ['live-mode Session', { livemode: true, mode: 'subscription', status: 'expired' }],
     ['non-subscription Session', { livemode: false, mode: 'payment', status: 'expired' }],
     ['unexpired Session', { livemode: false, mode: 'subscription', status: 'open' }],
@@ -807,6 +809,7 @@ describe('Stripe webhook repository', () => {
       type: 'checkout.session.expired',
       data: { object: {
         id: 'cs_current',
+        object: 'checkout.session',
         customer: 'cus_demo',
         metadata: { demoUserId: DEMO_USER_ID },
         ...shape,
@@ -832,6 +835,7 @@ describe('Stripe webhook repository', () => {
       type: 'checkout.session.completed',
       data: { object: {
         id: 'cs_current',
+        object: 'checkout.session',
         customer: 'cus_demo',
         subscription: 's'.repeat(256),
         metadata: { demoUserId: DEMO_USER_ID },
@@ -847,6 +851,7 @@ describe('Stripe webhook repository', () => {
   });
 
   it.each([
+    ['non-Session object', { object: 'invoice', livemode: false, mode: 'subscription', status: 'complete' }],
     ['live-mode Session', { livemode: true, mode: 'subscription', status: 'complete' }],
     ['non-subscription Session', { livemode: false, mode: 'payment', status: 'complete' }],
     ['incomplete Session', { livemode: false, mode: 'subscription', status: 'open' }],
@@ -864,6 +869,7 @@ describe('Stripe webhook repository', () => {
       type: 'checkout.session.completed',
       data: { object: {
         id: 'cs_current',
+        object: 'checkout.session',
         customer: 'cus_demo',
         subscription: 'sub_untrusted',
         metadata: { demoUserId: DEMO_USER_ID },
