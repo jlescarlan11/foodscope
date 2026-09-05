@@ -1,4 +1,4 @@
-import { NUTRITION_RULES, type Locale } from './constants.js';
+import { isUsableText, NUTRITION_RULES, type Locale } from './constants.js';
 import type { Nutrition, Product, ProductProvider } from './types.js';
 import { setTimeout as delay } from 'node:timers/promises';
 
@@ -9,8 +9,11 @@ const MAX_PRODUCTS = 20;
 const isRecord = (value: unknown): value is UnknownRecord =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
-const textValue = (value: unknown) =>
-  typeof value === 'string' && value.trim() ? value.trim() : undefined;
+const textValue = (value: unknown) => {
+  if (typeof value !== 'string') return undefined;
+  const text = value.trim();
+  return text && isUsableText(text) ? text : undefined;
+};
 
 const numberValue = (value: unknown, maximum: number) =>
   typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= maximum

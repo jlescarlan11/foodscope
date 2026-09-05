@@ -3,6 +3,12 @@ export const DEMO_USER_EMAIL = 'demo@foodscope.local';
 export const SUPPORTED_LOCALES = ['en', 'nl', 'de', 'fr'] as const;
 export type Locale = (typeof SUPPORTED_LOCALES)[number];
 
+const visibleTextCharacter = /[\p{L}\p{N}\p{P}\p{S}]/u;
+const controlCharacter = /\p{Cc}/u;
+
+export const isUsableText = (value: string) =>
+  visibleTextCharacter.test(value) && !controlCharacter.test(value);
+
 export const NUTRITION_RULES = {
   energyKcal: { unit: 'kcal', maximum: 1_000 },
   fat: { unit: 'g', maximum: 100 },

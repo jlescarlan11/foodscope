@@ -4,7 +4,13 @@ import helmet from 'helmet';
 import type Stripe from 'stripe';
 import { z } from 'zod';
 import type { AppConfig } from './config.js';
-import { canStartCheckout, hasNutritionAccess, NUTRITION_RULES, SUPPORTED_LOCALES } from './constants.js';
+import {
+  canStartCheckout,
+  hasNutritionAccess,
+  isUsableText,
+  NUTRITION_RULES,
+  SUPPORTED_LOCALES,
+} from './constants.js';
 import { ProductProviderRateLimitError } from './open-food-facts.js';
 import { CheckoutUnavailableError } from './errors.js';
 import type { BillingProvider, DemoUserState, Nutrition, ProductProvider, Repository } from './types.js';
@@ -18,16 +24,9 @@ export type AppDependencies = {
 
 const searchSchema = z.object({
   requestId: z.string().uuid(),
-  q: z.string().trim().min(1).max(120).refine(isUsableSearchQuery),
+  q: z.string().trim().min(1).max(120).refine(isUsableText),
   lang: z.enum(SUPPORTED_LOCALES),
 });
-
-const visibleSearchCharacter = /[\p{L}\p{N}\p{P}\p{S}]/u;
-const controlCharacter = /\p{Cc}/u;
-
-function isUsableSearchQuery(value: string) {
-  return visibleSearchCharacter.test(value) && !controlCharacter.test(value);
-}
 
 const relevantStripeEventTypes = new Set<Stripe.Event.Type>([
   'checkout.session.completed',
@@ -249,7 +248,7 @@ export function createApp(deps: AppDependencies) {
       res.json({
         searches: searches.flatMap(({ query, locale }) =>
           query.trim() && Array.from(query).length <= 120 &&
-            isUsableSearchQuery(query) &&
+            isUsableText(query) &&
             SUPPORTED_LOCALES.includes(locale as (typeof SUPPORTED_LOCALES)[number])
             ? [{ query, locale }]
             : []),

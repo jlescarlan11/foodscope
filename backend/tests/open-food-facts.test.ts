@@ -60,6 +60,23 @@ describe('Open Food Facts normalization', () => {
     expect(normalizeProduct('malformed', 'en')).toBeNull();
   });
 
+  it('treats invisible and control-character product text as unavailable', () => {
+    expect(normalizeProduct({
+      code: '\u0000',
+      _id: 'fallback-id',
+      product_name_en: '\u200b',
+      product_name: 'Generic name',
+      brands: '\u0000',
+    }, 'en')).toEqual({
+      id: 'fallback-id', name: 'Generic name', brand: null, image: null,
+    });
+
+    expect(normalizeProduct({
+      code: '\u200b',
+      product_name: 'Unidentified product',
+    }, 'en')).toBeNull();
+  });
+
   it('sends locale-aware headers and retries one gateway failure', async () => {
     const cancel = vi.fn(async () => undefined);
     const fetcher = vi.fn()
