@@ -64,9 +64,18 @@ function hasRecentCheckoutMarker() {
 }
 
 class ApiResponseError extends Error {
-  constructor(readonly status: number) {
+  constructor(readonly status: number, readonly retryAfterSeconds?: number) {
     super('Request failed');
   }
+}
+
+function responseRetryAfterSeconds(response: Response) {
+  const value = response.headers?.get?.('retry-after');
+  if (!value || !/^\d+$/.test(value)) return undefined;
+  const seconds = Number(value);
+  return Number.isSafeInteger(seconds) && seconds >= 1 && seconds <= 3_600
+    ? seconds
+    : undefined;
 }
 
 async function api<T>(
@@ -89,7 +98,9 @@ async function api<T>(
       cache: 'no-store',
       signal: controller.signal,
     });
-    if (!response.ok) throw new ApiResponseError(response.status);
+    if (!response.ok) {
+      throw new ApiResponseError(response.status, responseRetryAfterSeconds(response));
+    }
     return await response.json() as T;
   } finally {
     window.clearTimeout(timeout);
@@ -231,6 +242,7 @@ export function FoodscopeApp() {
   const [subscribing, setSubscribing] = useState(false);
   const [searchError, setSearchError] = useState(false);
   const [checkoutError, setCheckoutError] = useState(false);
+  const [checkoutRateLimited, setCheckoutRateLimited] = useState(false);
   const [checkoutConflict, setCheckoutConflict] = useState(false);
   const [checkoutCancelled, setCheckoutCancelled] = useState(false);
   const searchSequence = useRef(0);
@@ -242,6 +254,7 @@ export function FoodscopeApp() {
   const accountSequence = useRef(0);
   const accountController = useRef<AbortController | null>(null);
   const checkoutController = useRef<AbortController | null>(null);
+  const checkoutRetryTimer = useRef<number | null>(null);
   const messages = dictionaries[locale];
 
   const refreshRecent = () => {
@@ -328,6 +341,7 @@ export function FoodscopeApp() {
       searchController.current?.abort();
       recentController.current?.abort();
       checkoutController.current?.abort();
+      if (checkoutRetryTimer.current !== null) window.clearTimeout(checkoutRetryTimer.current);
     };
   }, []);
   useEffect(() => { document.documentElement.lang = locale; }, [locale]);
@@ -419,7 +433,13 @@ export function FoodscopeApp() {
       }
     } catch (error) {
       if (controller.signal.aborted) return;
-      if (error instanceof ApiResponseError && error.status === 409) {
+      if (error instanceof ApiResponseError && error.status === 429) {
+        setCheckoutRateLimited(true);
+        checkoutRetryTimer.current = window.setTimeout(() => {
+          checkoutRetryTimer.current = null;
+          setCheckoutRateLimited(false);
+        }, (error.retryAfterSeconds ?? 60) * 1000);
+      } else if (error instanceof ApiResponseError && error.status === 409) {
         setCheckoutConflict(true);
         accountController.current?.abort();
         const controller = new AbortController();
@@ -472,11 +492,12 @@ export function FoodscopeApp() {
           <div className="plan-top"><span className="spark" aria-hidden="true">✣</span><div><p>{messages.plan}</p><strong role="status">{accountState === 'loading' ? messages.loading : accountState === 'error' ? messages.accountUnavailable : user?.nutritionAccess ? messages.active : messages.inactive}</strong></div><span aria-hidden="true" className={`status-dot ${accountState === 'ready' && user?.nutritionAccess ? 'on' : ''}`} /></div>
           <p>{messages.subscriptionBody}</p>
           {accountState === 'error' && <button onClick={retryAccount}>{messages.retryAccount}<span aria-hidden="true">↻</span></button>}
-          {accountState === 'ready' && !user?.nutritionAccess && user?.billingAvailable && user.checkoutAvailable && !checkoutConflict && <button onClick={() => void subscribe()} disabled={subscribing}>{subscribing ? messages.redirecting : messages.subscribe}<span aria-hidden="true">↗</span></button>}
+          {accountState === 'ready' && !user?.nutritionAccess && user?.billingAvailable && user.checkoutAvailable && !checkoutConflict && <button onClick={() => void subscribe()} disabled={subscribing || checkoutRateLimited}>{subscribing ? messages.redirecting : messages.subscribe}<span aria-hidden="true">↗</span></button>}
           {accountState === 'ready' && !user?.nutritionAccess && user?.billingAvailable === false && <p className="plan-note">{messages.checkoutUnavailable}</p>}
           {accountState === 'ready' && !user?.nutritionAccess && user?.billingAvailable && (!user.checkoutAvailable || checkoutConflict) && <p className="plan-note">{messages.checkoutBlocked}</p>}
           {accountState === 'ready' && !user?.nutritionAccess && user?.billingAvailable && checkoutConflict && <button onClick={retryAccount}>{messages.retryAccount}<span aria-hidden="true">↻</span></button>}
           {checkoutError && <p className="plan-alert" role="alert">{messages.checkoutError}</p>}
+          {checkoutRateLimited && <p className="plan-alert" role="alert">{messages.checkoutRateLimited}</p>}
           <small>{messages.monthly}</small>
         </aside>
       </section>

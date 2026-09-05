@@ -915,6 +915,44 @@ describe('Foodscope locale switching', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('We could not open Checkout');
   });
 
+  it('honors Checkout Retry-After before re-enabling the action', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('/api/user')) {
+        return { ok: true, json: async () => accountState() } as Response;
+      }
+      if (url.includes('/api/searches/recent')) {
+        return { ok: true, json: async () => ({ searches: [] }) } as Response;
+      }
+      return {
+        ok: false,
+        status: 429,
+        headers: new Headers({ 'Retry-After': '37' }),
+      } as Response;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<FoodscopeApp />);
+    await act(async () => Promise.resolve());
+
+    const checkout = screen.getByRole('button', { name: 'Unlock nutrition' });
+    await act(async () => {
+      fireEvent.click(checkout);
+      await Promise.resolve();
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Checkout is temporarily paused',
+    );
+    expect(checkout).toBeDisabled();
+    expect(fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes('/api/billing/checkout-session'))).toHaveLength(1);
+
+    await act(async () => vi.advanceTimersByTimeAsync(36_999));
+    expect(checkout).toBeDisabled();
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    expect(checkout).toBeEnabled();
+  });
+
   it('does not replace an in-flight Checkout request on rapid repeated activation', async () => {
     let checkoutSignal: AbortSignal | undefined;
     const fetchMock = vi.fn((input: string | URL | Request, init?: RequestInit) => {
