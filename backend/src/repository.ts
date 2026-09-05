@@ -82,6 +82,12 @@ function eventObject(event: Stripe.Event): unknown {
   return data ? data.object : undefined;
 }
 
+function sessionMetadataAllowsDemoUser(value: unknown) {
+  return !isRecord(value) ||
+    value.demoUserId === undefined ||
+    value.demoUserId === DEMO_USER_ID;
+}
+
 function isSubscriptionLocator(value: unknown): value is Stripe.Subscription {
   return isRecord(value) &&
     value.object === 'subscription' &&
@@ -328,14 +334,13 @@ export function createRepository(database: typeof prisma, stripePriceId?: string
             const subscriptionId = isRecord(session)
               ? testSubscriptionId(session.subscription)
               : null;
-            const metadata = isRecord(session) && isRecord(session.metadata) ? session.metadata : null;
             if (
               isRecord(session) && sessionId && customerId && subscriptionId &&
               session.object === 'checkout.session' &&
               session.livemode === false &&
               session.mode === 'subscription' &&
               session.status === 'complete' &&
-              metadata?.demoUserId === DEMO_USER_ID
+              sessionMetadataAllowsDemoUser(session.metadata)
             ) {
               await tx.user.updateMany({
                 where: {
@@ -354,16 +359,13 @@ export function createRepository(database: typeof prisma, stripePriceId?: string
               ? session.id
               : null;
             const customerId = isRecord(session) ? activeCustomerId(session.customer) : null;
-            const metadata = isRecord(session) && isRecord(session.metadata)
-              ? session.metadata
-              : null;
             if (
               isRecord(session) && sessionId && customerId &&
               session.object === 'checkout.session' &&
               session.livemode === false &&
               session.mode === 'subscription' &&
               session.status === 'expired' &&
-              metadata?.demoUserId === DEMO_USER_ID
+              sessionMetadataAllowsDemoUser(session.metadata)
             ) {
               await tx.user.updateMany({
                 where: {

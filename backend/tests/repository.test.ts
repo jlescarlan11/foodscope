@@ -949,6 +949,38 @@ describe('Stripe webhook repository', () => {
   });
 
   it.each([
+    ['checkout.session.completed', 'complete'],
+    ['checkout.session.expired', 'expired'],
+  ] as const)('recovers a mapped %s event with malformed metadata', async (type, status) => {
+    const updateMany = vi.fn(async () => ({ count: 1 }));
+    const tx = {
+      stripeWebhookEvent: eventMarker(),
+      user: { updateMany },
+    };
+    const database = {
+      $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<void>) => callback(tx)),
+    } as unknown as typeof prisma;
+    const event = {
+      id: `evt_${status}_malformed_metadata`,
+      type,
+      data: { object: {
+        id: 'cs_current',
+        object: 'checkout.session',
+        customer: 'cus_demo',
+        subscription: 'sub_current',
+        metadata: null,
+        livemode: false,
+        mode: 'subscription',
+        status,
+      } },
+    } as unknown as Stripe.Event;
+
+    await createBillingRepository(database).processStripeEvent(event);
+
+    expect(updateMany).toHaveBeenCalledOnce();
+  });
+
+  it.each([
     ['non-Session object', { object: 'invoice', livemode: false, mode: 'subscription', status: 'expired' }],
     ['non-Customer expanded reference', {
       customer: { id: 'cus_demo', object: 'invoice' },
@@ -956,6 +988,10 @@ describe('Stripe webhook repository', () => {
     }],
     ['deleted expanded Customer', {
       customer: { id: 'cus_demo', object: 'customer', deleted: true },
+      livemode: false, mode: 'subscription', status: 'expired',
+    }],
+    ['conflicting demo-user metadata', {
+      metadata: { demoUserId: 'unexpected-user' },
       livemode: false, mode: 'subscription', status: 'expired',
     }],
     ['live-mode Session', { livemode: true, mode: 'subscription', status: 'expired' }],
@@ -1032,6 +1068,10 @@ describe('Stripe webhook repository', () => {
     }],
     ['live-mode expanded Subscription', {
       subscription: { id: 'sub_untrusted', object: 'subscription', livemode: true },
+      livemode: false, mode: 'subscription', status: 'complete',
+    }],
+    ['conflicting demo-user metadata', {
+      metadata: { demoUserId: 'unexpected-user' },
       livemode: false, mode: 'subscription', status: 'complete',
     }],
     ['live-mode Session', { livemode: true, mode: 'subscription', status: 'complete' }],
