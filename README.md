@@ -60,7 +60,7 @@ the backend; the placeholder is rejected so anonymous traffic cannot be sent acc
 | --- | --- | --- |
 | `DATABASE_URL` | Backend/Prisma | Local MySQL connection |
 | `PORT` | Backend | Express port (default `4000`) |
-| `FRONTEND_URL` | Backend | Allowed CORS origin and Checkout return URL |
+| `FRONTEND_URL` | Backend | One absolute HTTP(S) origin used for CORS and Checkout return URLs |
 | `NEXT_PUBLIC_API_URL` | Frontend | Public base URL of the Express API |
 | `STRIPE_SECRET_KEY` | Backend | Stripe test key; a least-privilege restricted key is preferred where supported |
 | `STRIPE_WEBHOOK_SECRET` | Backend | Signing secret from the Stripe webhook endpoint/CLI |

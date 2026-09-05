@@ -11,6 +11,35 @@ export type AppConfig = {
 
 const placeholderUserAgent = /(?:contact@example\.com|replace[_ -]?me|change[_ -]?me)/i;
 
+function parsePort(value: string | undefined) {
+  const port = Number(value ?? 4000);
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new Error('PORT must be an integer from 1 to 65535');
+  }
+  return port;
+}
+
+function parseFrontendOrigin(value: string | undefined) {
+  const input = value ?? 'http://localhost:3000';
+  let url: URL;
+  try {
+    url = new URL(input);
+  } catch {
+    throw new Error('FRONTEND_URL must be an absolute HTTP(S) origin');
+  }
+  if (
+    !['http:', 'https:'].includes(url.protocol) ||
+    url.username ||
+    url.password ||
+    url.pathname !== '/' ||
+    url.search ||
+    url.hash
+  ) {
+    throw new Error('FRONTEND_URL must be an absolute HTTP(S) origin');
+  }
+  return url.origin;
+}
+
 export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppConfig {
   const openFoodFactsUserAgent = environment.OPEN_FOOD_FACTS_USER_AGENT?.trim();
   if (
@@ -24,8 +53,8 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
   }
 
   return {
-    port: Number(environment.PORT ?? 4000),
-    frontendUrl: environment.FRONTEND_URL ?? 'http://localhost:3000',
+    port: parsePort(environment.PORT),
+    frontendUrl: parseFrontendOrigin(environment.FRONTEND_URL),
     openFoodFactsUserAgent,
     stripeSecretKey: environment.STRIPE_SECRET_KEY,
     stripeWebhookSecret: environment.STRIPE_WEBHOOK_SECRET,
