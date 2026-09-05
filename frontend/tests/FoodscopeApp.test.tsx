@@ -43,6 +43,30 @@ describe('Foodscope locale switching', () => {
       .toMatchObject({ cache: 'no-store' });
   });
 
+  it('links the product data and image attribution to their licenses', () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const body = String(input).includes('/api/user')
+        ? { nutritionAccess: false }
+        : { searches: [] };
+      return { ok: true, json: async () => body } as Response;
+    }));
+
+    render(<FoodscopeApp />);
+
+    expect(screen.getByRole('link', { name: 'Open Food Facts' })).toHaveAttribute(
+      'href',
+      'https://world.openfoodfacts.org/',
+    );
+    expect(screen.getByRole('link', { name: 'ODbL' })).toHaveAttribute(
+      'href',
+      'https://opendatacommons.org/licenses/odbl/1-0/',
+    );
+    expect(screen.getByRole('link', { name: 'CC BY-SA 3.0' })).toHaveAttribute(
+      'href',
+      'https://creativecommons.org/licenses/by-sa/3.0/',
+    );
+  });
+
   it('aborts an older search and ignores its stale response', async () => {
     let resolveFirst!: (response: Response) => void;
     let resolveSecond!: (response: Response) => void;

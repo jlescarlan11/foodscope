@@ -138,6 +138,7 @@ The behavioral suite covers invalid search input, Open Food Facts normalization 
 ## Technical decisions
 
 - Product records are not persisted; Open Food Facts remains the product source of truth.
+- The UI visibly attributes Open Food Facts data under ODbL and product images under CC BY-SA 3.0.
 - A selected-locale field request, 1 MiB response ceiling, and small DTO bound upstream transfer and
   prevent leaking the large provider payload or provider-specific field names.
 - The Express response is reconstructed from explicitly public product fields for inactive users, so restricted values cannot cross the API boundary.

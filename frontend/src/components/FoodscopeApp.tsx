@@ -266,7 +266,14 @@ export function FoodscopeApp() {
         {loading && <div className="empty"><span className="spinner" aria-hidden="true" /><p>{messages.searching}</p></div>}
         {products && products.length > 0 && <div className="product-grid">{products.map((product) => <ProductCard key={product.id} product={product} messages={messages} />)}</div>}
       </section>
-      <footer><span>Foodscope</span><span>Data by Open Food Facts</span></footer>
+      <footer>
+        <span>Foodscope</span>
+        <span className="attribution">
+          Contains information from <a href="https://world.openfoodfacts.org/">Open Food Facts</a>,
+          {' '}available under the <a href="https://opendatacommons.org/licenses/odbl/1-0/">ODbL</a>.
+          {' '}Product images are available under <a href="https://creativecommons.org/licenses/by-sa/3.0/">CC BY-SA 3.0</a>.
+        </span>
+      </footer>
     </main>
   );
 }
