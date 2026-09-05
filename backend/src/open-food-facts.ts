@@ -5,6 +5,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 type UnknownRecord = Record<string, unknown>;
 const MAX_RESPONSE_BYTES = 1_000_000;
 const MAX_PRODUCTS = 20;
+const MAX_PRODUCT_TEXT_CHARACTERS = 500;
 
 const isRecord = (value: unknown): value is UnknownRecord =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -12,7 +13,14 @@ const isRecord = (value: unknown): value is UnknownRecord =>
 const textValue = (value: unknown) => {
   if (typeof value !== 'string') return undefined;
   const text = value.trim();
-  return text && isUsableText(text) ? text : undefined;
+  if (!text || !isUsableText(text)) return undefined;
+  let characters = 0;
+  const iterator = text[Symbol.iterator]();
+  while (!iterator.next().done) {
+    characters += 1;
+    if (characters > MAX_PRODUCT_TEXT_CHARACTERS) return undefined;
+  }
+  return text;
 };
 
 const numberValue = (value: unknown, maximum: number) =>

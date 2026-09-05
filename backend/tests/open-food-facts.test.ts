@@ -119,6 +119,26 @@ describe('Open Food Facts normalization', () => {
     }, 'en')).toBeNull();
   });
 
+  it('does not reflect oversized upstream text fields into the product response', () => {
+    const oversized = 'x'.repeat(10_000);
+
+    expect(normalizeProduct({
+      code: 'bounded-product',
+      lang: 'en',
+      product_name_en: oversized,
+      product_name: 'Usable fallback',
+      brands: oversized,
+      image_front_url: `https://images.openfoodfacts.org/${oversized}.jpg`,
+    }, 'en')).toEqual({
+      id: 'bounded-product',
+      name: 'Usable fallback',
+      brand: null,
+      image: null,
+    });
+
+    expect(normalizeProduct({ code: oversized, lang: 'en' }, 'en')).toBeNull();
+  });
+
   it('rejects products without selected-locale main-language evidence', () => {
     expect(normalizeProduct({
       code: 'other-language',
