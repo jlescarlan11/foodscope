@@ -37,6 +37,7 @@ export type CheckoutAttempt = {
   expiresAt: Date;
   sessionUrl: string | null;
   priceId: string | null;
+  customerId: string | null;
 };
 
 export type RecentSearch = { id: number; query: string; locale: string; createdAt: Date };
@@ -50,6 +51,7 @@ export interface Repository {
   replaceStripeCustomer(
     userId: string,
     expectedCustomerId: string,
+    expectedCheckoutAttemptId: string,
     replacementCustomerId: string,
   ): Promise<string>;
   getOrCreateCheckoutAttempt(userId: string): Promise<CheckoutAttempt>;

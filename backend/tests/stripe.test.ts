@@ -18,12 +18,13 @@ const user: DemoUser = {
   subscriptionCurrentPeriodEnd: null,
 };
 
-function harness(sessionUrl: string | null = null) {
+function harness(sessionUrl: string | null = null, customerId: string | null = null) {
   const attempt = {
     id: '00000000-0000-4000-8000-000000000099',
     expiresAt: new Date('2030-01-01T00:31:00Z'),
     sessionUrl,
     priceId: 'price_test',
+    customerId,
   };
   const repository = {
     getOrCreateCheckoutAttempt: vi.fn(async () => attempt),
@@ -31,6 +32,7 @@ function harness(sessionUrl: string | null = null) {
     replaceStripeCustomer: vi.fn(async (
       _userId: string,
       _expectedCustomerId: string,
+      _expectedCheckoutAttemptId: string,
       replacementCustomerId: string,
     ) =>
       replacementCustomerId),
@@ -265,12 +267,23 @@ describe('Stripe Checkout creation', () => {
   });
 
   it('returns a stored open Session without creating any Stripe resource', async () => {
-    const setup = harness('https://checkout.stripe.test/existing');
+    const setup = harness('https://checkout.stripe.test/existing', 'cus_existing');
 
     await expect(setup.provider.createCheckout(user)).resolves.toEqual({
       url: 'https://checkout.stripe.test/existing',
     });
     expect(setup.pricesRetrieve).toHaveBeenCalledOnce();
+    expect(setup.customersRetrieve).toHaveBeenCalledWith('cus_existing');
+    expect(setup.customersCreate).not.toHaveBeenCalled();
+    expect(setup.sessionsCreate).not.toHaveBeenCalled();
+  });
+
+  it('does not return a stored Session without its authoritative Customer mapping', async () => {
+    const setup = harness('https://checkout.stripe.test/unmapped');
+
+    await expect(setup.provider.createCheckout(user)).rejects.toBeInstanceOf(
+      CheckoutUnavailableError,
+    );
     expect(setup.customersCreate).not.toHaveBeenCalled();
     expect(setup.sessionsCreate).not.toHaveBeenCalled();
   });
@@ -285,6 +298,38 @@ describe('Stripe Checkout creation', () => {
     expect(setup.pricesRetrieve).not.toHaveBeenCalled();
     expect(setup.customersCreate).not.toHaveBeenCalled();
     expect(setup.sessionsCreate).not.toHaveBeenCalled();
+  });
+
+  it('does not return a stored Session tied to a deleted Customer', async () => {
+    const setup = harness('https://checkout.stripe.test/deleted-customer', 'cus_deleted');
+    const replacementAttempt = {
+      ...setup.attempt,
+      id: '00000000-0000-4000-8000-000000000101',
+      sessionUrl: null,
+      customerId: 'cus_test',
+    };
+    vi.mocked(setup.repository.getOrCreateCheckoutAttempt)
+      .mockResolvedValueOnce(setup.attempt)
+      .mockResolvedValueOnce(replacementAttempt);
+    setup.customersRetrieve.mockImplementation(async (id) =>
+      id === 'cus_deleted' ? { id, deleted: true } : { id, deleted: false });
+
+    await expect(setup.provider.createCheckout({
+      ...user,
+      stripeCustomerId: 'cus_stale_snapshot',
+    })).resolves.toEqual({ url: 'https://checkout.stripe.test/session' });
+
+    expect(setup.customersRetrieve).toHaveBeenCalledWith('cus_deleted');
+    expect(setup.repository.replaceStripeCustomer).toHaveBeenCalledWith(
+      user.id,
+      'cus_deleted',
+      setup.attempt.id,
+      'cus_test',
+    );
+    expect(setup.sessionsCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ customer: 'cus_test' }),
+      { idempotencyKey: `foodscope-checkout-${replacementAttempt.id}` },
+    );
   });
 
   it('repairs an unsafe stored URL through the existing idempotent Session request', async () => {
@@ -307,12 +352,13 @@ describe('Stripe Checkout creation', () => {
   it('replaces a stale unsaved attempt after Stripe definitively rejects its expiry', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2030-01-01T00:02:00.000Z'));
-    const setup = harness();
+    const setup = harness(null, 'cus_existing');
     const replacement = {
       id: '00000000-0000-4000-8000-000000000100',
       expiresAt: new Date('2030-01-01T01:02:00.000Z'),
       sessionUrl: null,
       priceId: 'price_test',
+      customerId: 'cus_existing',
     };
     vi.mocked(setup.repository.getOrCreateCheckoutAttempt)
       .mockResolvedValueOnce(setup.attempt)
@@ -366,12 +412,13 @@ describe('Stripe Checkout creation', () => {
   it('bounds stale-expiry recovery to one replacement attempt', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2030-01-01T00:02:00.000Z'));
-    const setup = harness();
+    const setup = harness(null, 'cus_existing');
     const replacement = {
       id: '00000000-0000-4000-8000-000000000100',
       expiresAt: new Date('2030-01-01T01:02:00.000Z'),
       sessionUrl: null,
       priceId: 'price_test',
+      customerId: 'cus_existing',
     };
     vi.mocked(setup.repository.getOrCreateCheckoutAttempt)
       .mockResolvedValueOnce(setup.attempt)
@@ -403,7 +450,7 @@ describe('Stripe Checkout creation', () => {
   it('does not replace an attempt for a different invalid Stripe parameter', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2030-01-01T00:02:00.000Z'));
-    const setup = harness();
+    const setup = harness(null, 'cus_existing');
     const priceError = new Stripe.errors.StripeInvalidRequestError({
       type: 'invalid_request_error',
       message: 'synthetic Price rejection',
@@ -439,7 +486,7 @@ describe('Stripe Checkout creation', () => {
   it.each(['active', 'unpaid'] as const)(
     'does not create another Session when the Customer has an %s subscription',
     async (status) => {
-      const setup = harness();
+      const setup = harness(null, 'cus_existing');
       setup.subscriptionsList.mockResolvedValueOnce({
         data: [{ status }],
         has_more: false,
@@ -460,7 +507,7 @@ describe('Stripe Checkout creation', () => {
   );
 
   it('allows recovery after only terminal subscriptions', async () => {
-    const setup = harness();
+    const setup = harness(null, 'cus_existing');
     setup.subscriptionsList.mockResolvedValueOnce({
       data: [{ status: 'canceled' }, { status: 'incomplete_expired' }],
       has_more: false,
@@ -475,7 +522,15 @@ describe('Stripe Checkout creation', () => {
   });
 
   it('replaces a deleted stored Customer before creating Checkout', async () => {
-    const setup = harness();
+    const setup = harness(null, 'cus_deleted');
+    const replacementAttempt = {
+      ...setup.attempt,
+      id: '00000000-0000-4000-8000-000000000102',
+      customerId: 'cus_test',
+    };
+    vi.mocked(setup.repository.getOrCreateCheckoutAttempt)
+      .mockResolvedValueOnce(setup.attempt)
+      .mockResolvedValueOnce(replacementAttempt);
     setup.customersRetrieve.mockResolvedValueOnce({ id: 'cus_deleted', deleted: true });
 
     await expect(setup.provider.createCheckout({
@@ -490,6 +545,7 @@ describe('Stripe Checkout creation', () => {
     expect(setup.repository.replaceStripeCustomer).toHaveBeenCalledWith(
       user.id,
       'cus_deleted',
+      setup.attempt.id,
       'cus_test',
     );
     expect(setup.subscriptionsList).toHaveBeenCalledWith({
@@ -504,7 +560,7 @@ describe('Stripe Checkout creation', () => {
   });
 
   it('does not create resources when the stored Customer read fails', async () => {
-    const setup = harness();
+    const setup = harness(null, 'cus_existing');
     setup.customersRetrieve.mockRejectedValueOnce(new Error('temporary Customer read failure'));
 
     await expect(setup.provider.createCheckout({
@@ -519,8 +575,18 @@ describe('Stripe Checkout creation', () => {
   });
 
   it('retries a deleted-Customer replacement without duplicating the Customer', async () => {
-    const setup = harness();
-    setup.customersRetrieve.mockResolvedValue({ id: 'cus_deleted', deleted: true });
+    const setup = harness(null, 'cus_deleted');
+    const replacementAttempt = {
+      ...setup.attempt,
+      id: '00000000-0000-4000-8000-000000000103',
+      customerId: 'cus_test',
+    };
+    vi.mocked(setup.repository.getOrCreateCheckoutAttempt)
+      .mockResolvedValueOnce(setup.attempt)
+      .mockResolvedValueOnce(setup.attempt)
+      .mockResolvedValueOnce(replacementAttempt);
+    setup.customersRetrieve.mockImplementation(async (id) =>
+      id === 'cus_deleted' ? { id, deleted: true } : { id, deleted: false });
     vi.mocked(setup.repository.replaceStripeCustomer)
       .mockRejectedValueOnce(new Error('temporary database failure'))
       .mockResolvedValueOnce('cus_test');

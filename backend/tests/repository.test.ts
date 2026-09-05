@@ -122,12 +122,24 @@ describe('Stripe webhook repository', () => {
     await expect(createRepository(database).replaceStripeCustomer(
       DEMO_USER_ID,
       'cus_deleted',
+      'attempt_deleted',
       'cus_replacement',
     )).resolves.toBe('cus_replacement');
 
     expect(updateMany).toHaveBeenCalledWith({
-      where: { id: DEMO_USER_ID, stripeCustomerId: 'cus_deleted' },
-      data: { stripeCustomerId: 'cus_replacement' },
+      where: {
+        id: DEMO_USER_ID,
+        stripeCustomerId: 'cus_deleted',
+        stripeCheckoutAttemptId: 'attempt_deleted',
+      },
+      data: {
+        stripeCustomerId: 'cus_replacement',
+        stripeCheckoutAttemptId: null,
+        stripeCheckoutPriceId: null,
+        stripeCheckoutSessionId: null,
+        stripeCheckoutSessionUrl: null,
+        stripeCheckoutExpiresAt: null,
+      },
     });
   });
 
@@ -142,6 +154,7 @@ describe('Stripe webhook repository', () => {
     await expect(createRepository(database).replaceStripeCustomer(
       DEMO_USER_ID,
       'cus_deleted',
+      'attempt_deleted',
       'cus_replacement',
     )).resolves.toBe('cus_replacement');
   });
@@ -157,8 +170,29 @@ describe('Stripe webhook repository', () => {
     await expect(createRepository(database).replaceStripeCustomer(
       DEMO_USER_ID,
       'cus_deleted',
+      'attempt_deleted',
       'cus_replacement',
     )).rejects.toBeInstanceOf(CheckoutUnavailableError);
+  });
+
+  it('does not clear a newer Checkout attempt while replacing a deleted Customer', async () => {
+    const updateMany = vi.fn(async () => ({ count: 0 }));
+    const database = {
+      user: {
+        updateMany,
+        findUnique: vi.fn(async () => ({ stripeCustomerId: 'cus_deleted' })),
+      },
+    } as unknown as typeof prisma;
+
+    await expect(createRepository(database).replaceStripeCustomer(
+      DEMO_USER_ID,
+      'cus_deleted',
+      'attempt_stale',
+      'cus_replacement',
+    )).rejects.toBeInstanceOf(CheckoutUnavailableError);
+    expect(updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ stripeCheckoutAttemptId: 'attempt_stale' }),
+    }));
   });
 
   it.each([null, 'price_previous'])(

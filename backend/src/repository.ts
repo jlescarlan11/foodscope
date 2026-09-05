@@ -133,10 +133,26 @@ export function createRepository(database: typeof prisma, stripePriceId?: string
     async setStripeCustomer(userId, customerId) {
       await database.user.update({ where: { id: userId }, data: { stripeCustomerId: customerId } });
     },
-    async replaceStripeCustomer(userId, expectedCustomerId, replacementCustomerId) {
+    async replaceStripeCustomer(
+      userId,
+      expectedCustomerId,
+      expectedCheckoutAttemptId,
+      replacementCustomerId,
+    ) {
       const replaced = await database.user.updateMany({
-        where: { id: userId, stripeCustomerId: expectedCustomerId },
-        data: { stripeCustomerId: replacementCustomerId },
+        where: {
+          id: userId,
+          stripeCustomerId: expectedCustomerId,
+          stripeCheckoutAttemptId: expectedCheckoutAttemptId,
+        },
+        data: {
+          stripeCustomerId: replacementCustomerId,
+          stripeCheckoutAttemptId: null,
+          stripeCheckoutPriceId: null,
+          stripeCheckoutSessionId: null,
+          stripeCheckoutSessionUrl: null,
+          stripeCheckoutExpiresAt: null,
+        },
       });
       if (replaced.count === 1) return replacementCustomerId;
 
@@ -152,6 +168,7 @@ export function createRepository(database: typeof prisma, stripePriceId?: string
         where: { id: userId },
         select: {
           subscriptionStatus: true,
+          stripeCustomerId: true,
           stripeCheckoutAttemptId: true,
           stripeCheckoutPriceId: true,
           stripeCheckoutSessionUrl: true,
@@ -174,6 +191,7 @@ export function createRepository(database: typeof prisma, stripePriceId?: string
           expiresAt: existing.stripeCheckoutExpiresAt,
           sessionUrl: existing.stripeCheckoutSessionUrl,
           priceId: existing.stripeCheckoutPriceId,
+          customerId: existing.stripeCustomerId,
         };
       }
 
@@ -196,13 +214,19 @@ export function createRepository(database: typeof prisma, stripePriceId?: string
         },
       });
       if (claimed.count === 1) {
-        return { ...attempt, sessionUrl: null, priceId: stripePriceId ?? null };
+        return {
+          ...attempt,
+          sessionUrl: null,
+          priceId: stripePriceId ?? null,
+          customerId: existing.stripeCustomerId,
+        };
       }
 
       const winner = await database.user.findUniqueOrThrow({
         where: { id: userId },
         select: {
           subscriptionStatus: true,
+          stripeCustomerId: true,
           stripeCheckoutAttemptId: true,
           stripeCheckoutPriceId: true,
           stripeCheckoutSessionUrl: true,
@@ -223,6 +247,7 @@ export function createRepository(database: typeof prisma, stripePriceId?: string
         expiresAt: winner.stripeCheckoutExpiresAt,
         sessionUrl: winner.stripeCheckoutSessionUrl,
         priceId: winner.stripeCheckoutPriceId,
+        customerId: winner.stripeCustomerId,
       };
     },
     async completeCheckoutAttempt(userId, attemptId, session) {

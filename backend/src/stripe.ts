@@ -106,6 +106,7 @@ export class StripeBillingProvider implements BillingProvider {
   private async createCheckoutOnce(
     user: DemoUser,
     canRecoverStaleExpiry = true,
+    canRecoverDeletedCustomer = true,
   ): Promise<{ url: string }> {
     if (!this.config.stripePriceId) throw new Error('Stripe price is not configured');
 
@@ -113,12 +114,12 @@ export class StripeBillingProvider implements BillingProvider {
     if (attempt.priceId !== this.config.stripePriceId) throw new CheckoutUnavailableError();
     await this.validateConfiguredPrice();
     const storedSessionUrl = safeCheckoutUrl(attempt.sessionUrl);
-    if (storedSessionUrl) return { url: storedSessionUrl };
 
-    let customerId = user.stripeCustomerId;
+    let customerId = attempt.customerId;
     if (customerId) {
       const customer = await this.stripe.customers.retrieve(customerId);
       if ('deleted' in customer && customer.deleted === true) {
+        if (!canRecoverDeletedCustomer) throw new CheckoutUnavailableError();
         const replacement = await this.stripe.customers.create({
           email: user.email,
           metadata: { demoUserId: user.id },
@@ -126,9 +127,16 @@ export class StripeBillingProvider implements BillingProvider {
         customerId = await this.repository.replaceStripeCustomer(
           user.id,
           customerId,
+          attempt.id,
           replacement.id,
         );
+        return this.createCheckoutOnce(
+          user,
+          canRecoverStaleExpiry,
+          false,
+        );
       }
+      if (storedSessionUrl) return { url: storedSessionUrl };
       const subscriptions = await this.stripe.subscriptions.list({
         customer: customerId,
         status: 'all',
@@ -141,6 +149,7 @@ export class StripeBillingProvider implements BillingProvider {
         throw new CheckoutUnavailableError();
       }
     } else {
+      if (storedSessionUrl) throw new CheckoutUnavailableError();
       const customer = await this.stripe.customers.create({
         email: user.email,
         metadata: { demoUserId: user.id },
@@ -148,6 +157,7 @@ export class StripeBillingProvider implements BillingProvider {
       customerId = customer.id;
       await this.repository.setStripeCustomer(user.id, customerId);
     }
+    if (storedSessionUrl) return { url: storedSessionUrl };
 
     let session: Stripe.Checkout.Session;
     try {
@@ -167,7 +177,11 @@ export class StripeBillingProvider implements BillingProvider {
         throw error;
       }
       await this.repository.releaseCheckoutAttempt(user.id, attempt.id);
-      return this.createCheckoutOnce({ ...user, stripeCustomerId: customerId }, false);
+      return this.createCheckoutOnce(
+        user,
+        false,
+        canRecoverDeletedCustomer,
+      );
     }
     const sessionUrl = safeCheckoutUrl(session.url);
     if (!sessionUrl) throw new Error('Stripe did not return a safe Checkout URL');

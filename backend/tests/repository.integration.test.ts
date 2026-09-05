@@ -153,9 +153,17 @@ integration('Repository with MySQL', () => {
   });
 
   it('converges concurrent replacement of the same Stripe Customer', async () => {
+    await database.user.update({
+      where: { id: DEMO_USER_ID },
+      data: { stripeCheckoutAttemptId: 'attempt_replacement' },
+    });
     await expect(Promise.all([
-      subject.replaceStripeCustomer(DEMO_USER_ID, 'cus_integration', 'cus_replacement'),
-      subject.replaceStripeCustomer(DEMO_USER_ID, 'cus_integration', 'cus_replacement'),
+      subject.replaceStripeCustomer(
+        DEMO_USER_ID, 'cus_integration', 'attempt_replacement', 'cus_replacement',
+      ),
+      subject.replaceStripeCustomer(
+        DEMO_USER_ID, 'cus_integration', 'attempt_replacement', 'cus_replacement',
+      ),
     ])).resolves.toEqual(['cus_replacement', 'cus_replacement']);
     await expect(database.user.findUniqueOrThrow({ where: { id: DEMO_USER_ID } }))
       .resolves.toMatchObject({ stripeCustomerId: 'cus_replacement' });
@@ -325,6 +333,7 @@ integration('Repository with MySQL', () => {
     ]);
     expect(second.id).toBe(first.id);
     expect(first.priceId).toBe('price_test');
+    expect(first.customerId).toBe('cus_integration');
     await expect(database.user.findUniqueOrThrow({ where: { id: DEMO_USER_ID } }))
       .resolves.toMatchObject({ stripeCheckoutPriceId: 'price_test' });
 
