@@ -142,7 +142,18 @@ describe('Foodscope API', () => {
 
     expect(response.status).toBe(200);
     expect(response.body.nutritionAccess).toBe(true);
+    expect(response.body.billingAvailable).toBe(true);
     expect(response.headers['cache-control']).toBe('no-store');
+  });
+
+  it('reports when optional Stripe Checkout is unavailable', async () => {
+    const setup = harness();
+    setup.dependencies.billing = null;
+
+    const response = await request(createApp(setup.dependencies)).get('/api/user');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ nutritionAccess: false, billingAvailable: false });
   });
 
   it('fails closed when nutrition access is revoked during an upstream search', async () => {

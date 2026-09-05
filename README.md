@@ -94,7 +94,7 @@ npm run dev -w backend      # Express only
 ## Stripe test setup
 
 1. In Stripe test mode, create one Product and a recurring monthly Price.
-2. Put its `price_...` ID and a test-mode backend key in `backend/.env`. Use a restricted test key with only the permissions needed to create/read Customers and Checkout Sessions when possible.
+2. Put its `price_...` ID and a test-mode backend key in `backend/.env`. Use a restricted test key with only the permissions needed to create/read Customers and Checkout Sessions and read/list Subscriptions when possible.
 3. Forward signed events locally:
 
    ```bash
@@ -104,6 +104,8 @@ npm run dev -w backend      # Express only
 4. Copy the printed `whsec_...` into `STRIPE_WEBHOOK_SECRET`, restart the API, select **Unlock nutrition**, and use Stripe's standard test card `4242 4242 4242 4242` with any future expiry and CVC.
 
 Checkout uses `mode: subscription`, the configured recurring Price, a reused Stripe Customer, and demo-user metadata on both the Session and Subscription. A durable 31-minute attempt and Stripe idempotency keys make concurrent or retried requests reuse one Customer and open Checkout Session. Before replacing an expired attempt, Foodscope refuses to create another Session while that Customer has a non-terminal subscription. No payment-method list is hard-coded, so Stripe's test Dashboard settings control eligible methods. The handler verifies the raw body before processing `checkout.session.completed` and `customer.subscription.created|updated|deleted`. Subscription events lock the mapped demo-user row and then retrieve current Stripe state, so concurrent or out-of-order snapshots cannot restore stale access. Event IDs make retries idempotent, and bounded Stripe/transaction timeouts turn provider failures into safe webhook retries. The backend Stripe key therefore needs read/list access to Subscriptions in addition to Customer and Checkout Session creation.
+
+Leave all three Stripe variables empty when not testing billing. The API then reports billing as unavailable and the UI does not offer a Checkout action.
 
 The Checkout success redirect is never treated as authorization. On return, the frontend requests `/api/user`; only verified webhook-synchronized MySQL state unlocks nutrition. For a production launch, review tax obligations and configure Stripe Tax only after adding the applicable tax registrations.
 

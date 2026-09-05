@@ -249,6 +249,20 @@ describe('Foodscope locale switching', () => {
     expect(accountReads).toBe(2);
   });
 
+  it('does not offer a Checkout action when optional billing is unavailable', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const body = String(input).includes('/api/user')
+        ? { nutritionAccess: false, billingAvailable: false }
+        : { searches: [] };
+      return { ok: true, json: async () => body } as Response;
+    }));
+
+    render(<FoodscopeApp />);
+
+    expect(await screen.findByText('Stripe test Checkout is not configured.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Unlock nutrition' })).not.toBeInTheDocument();
+  });
+
   it('recovers from an account request that never responds', async () => {
     vi.useFakeTimers();
     vi.stubGlobal('fetch', vi.fn((input: string | URL | Request, init?: RequestInit) => {

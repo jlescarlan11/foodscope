@@ -113,6 +113,7 @@ export function createApp(deps: AppDependencies) {
         subscriptionStatus: user.subscriptionStatus,
         subscriptionCurrentPeriodEnd: user.subscriptionCurrentPeriodEnd,
         nutritionAccess: isActiveSubscription(user.subscriptionStatus),
+        billingAvailable: deps.billing !== null,
       });
     }),
   );
