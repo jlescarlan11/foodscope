@@ -573,6 +573,21 @@ describe('Foodscope API', () => {
     expect(recent.body.searches[0]).not.toHaveProperty('createdAt');
   });
 
+  it('omits malformed legacy history without hiding valid entries', async () => {
+    const setup = harness();
+    vi.mocked(setup.repository.getRecentSearches).mockResolvedValueOnce([
+      { id: 1, query: 'valid', locale: 'fr', createdAt: new Date() },
+      { id: 2, query: 'invalid locale', locale: 'es', createdAt: new Date() },
+      { id: 3, query: ' '.repeat(5), locale: 'en', createdAt: new Date() },
+      { id: 4, query: 'x'.repeat(121), locale: 'en', createdAt: new Date() },
+    ]);
+
+    const response = await request(setup.app).get('/api/searches/recent');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ searches: [{ query: 'valid', locale: 'fr' }] });
+  });
+
   it('does not query history after disconnecting during the recent-search account read', async () => {
     const setup = harness();
     let accountReadStarted: (() => void) | undefined;

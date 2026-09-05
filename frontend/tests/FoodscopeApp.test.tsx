@@ -123,6 +123,20 @@ describe('Foodscope locale switching', () => {
     expect(screen.getByRole('button', { name: 'cola DE' })).toBeInTheDocument();
   });
 
+  it('accepts persisted queries within the server Unicode length limit', async () => {
+    const query = '😀'.repeat(80);
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const body = String(input).includes('/api/user')
+        ? accountState()
+        : { searches: [{ query, locale: 'en' }] };
+      return { ok: true, json: async () => body } as Response;
+    }));
+
+    render(<FoodscopeApp />);
+
+    expect(await screen.findByRole('button', { name: `${query} EN` })).toBeInTheDocument();
+  });
+
   it('aborts an older search and ignores its stale response', async () => {
     let resolveFirst!: (response: Response) => void;
     let resolveSecond!: (response: Response) => void;

@@ -127,7 +127,8 @@ function isRecentSearchResponse(value: unknown): value is { searches: RecentSear
   return Array.isArray(searches) && searches.length <= 8 && searches.every((value) => {
     if (!value || typeof value !== 'object') return false;
     const search = value as Record<string, unknown>;
-    return typeof search.query === 'string' && Boolean(search.query.trim()) && search.query.length <= 120 &&
+    return typeof search.query === 'string' && Boolean(search.query.trim()) &&
+      Array.from(search.query).length <= 120 &&
       typeof search.locale === 'string' && locales.includes(search.locale as Locale);
   });
 }

@@ -244,7 +244,11 @@ export function createApp(deps: AppDependencies) {
       }
       const searches = await deps.repository.getRecentSearches(user.id, 8);
       res.json({
-        searches: searches.map(({ query, locale }) => ({ query, locale })),
+        searches: searches.flatMap(({ query, locale }) =>
+          query.trim() && Array.from(query).length <= 120 &&
+            SUPPORTED_LOCALES.includes(locale as (typeof SUPPORTED_LOCALES)[number])
+            ? [{ query, locale }]
+            : []),
       });
     }),
   );
