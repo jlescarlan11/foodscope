@@ -1,7 +1,9 @@
 import 'dotenv/config';
+import { isIP } from 'node:net';
 
 export type AppConfig = {
   port: number;
+  host: string;
   frontendUrl: string;
   openFoodFactsUserAgent: string;
   stripeSecretKey?: string;
@@ -18,6 +20,14 @@ function parsePort(value: string | undefined) {
     throw new Error('PORT must be an integer from 1 to 65535');
   }
   return port;
+}
+
+function parseHost(value: string | undefined, environment: string | undefined) {
+  const host = value?.trim() || (environment === 'production' ? '0.0.0.0' : '127.0.0.1');
+  if (host !== 'localhost' && isIP(host) === 0) {
+    throw new Error('HOST must be localhost or an IP address');
+  }
+  return host;
 }
 
 function parseFrontendOrigin(value: string | undefined, environment: string | undefined) {
@@ -96,6 +106,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
 
   return {
     port: parsePort(environment.PORT),
+    host: parseHost(environment.HOST, environment.NODE_ENV),
     frontendUrl: parseFrontendOrigin(environment.FRONTEND_URL, environment.NODE_ENV),
     openFoodFactsUserAgent,
     ...stripe,

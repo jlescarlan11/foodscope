@@ -26,8 +26,9 @@ async function start() {
     return;
   }
 
-  const server = app.listen(config.port, () => {
-    console.log(`Foodscope API listening on http://localhost:${config.port}`);
+  const server = app.listen(config.port, config.host, () => {
+    const displayHost = config.host.includes(':') ? `[${config.host}]` : config.host;
+    console.log(`Foodscope API listening on http://${displayHost}:${config.port}`);
   });
   configureHttpServer(server);
   server.once('error', () => {

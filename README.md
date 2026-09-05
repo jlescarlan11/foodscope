@@ -62,6 +62,7 @@ the backend; the placeholder is rejected so anonymous traffic cannot be sent acc
 | --- | --- | --- |
 | `DATABASE_URL` | Backend/Prisma | Local MySQL connection |
 | `PORT` | Backend | Express port (default `4000`) |
+| `HOST` | Backend | Listen address; defaults to loopback locally and `0.0.0.0` in production |
 | `FRONTEND_URL` | Backend | One absolute HTTP(S) origin used for CORS and Checkout return URLs |
 | `NEXT_PUBLIC_API_URL` | Frontend | Absolute HTTP(S) origin of the Express API; required for production builds |
 | `STRIPE_SECRET_KEY` | Backend | Stripe test key; a least-privilege restricted key is preferred where supported |

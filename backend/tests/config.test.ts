@@ -24,6 +24,7 @@ describe('runtime configuration', () => {
   it('accepts an application, version, and non-placeholder contact', () => {
     expect(loadConfig(validEnvironment)).toMatchObject({
       port: 4000,
+      host: '127.0.0.1',
       frontendUrl: 'http://localhost:3000',
       openFoodFactsUserAgent: 'Foodscope/1.0 (ops@foodscope.test)',
     });
@@ -44,6 +45,15 @@ describe('runtime configuration', () => {
         'PORT must be an integer from 1 to 65535',
       );
     }
+  });
+
+  it('binds locally by default and requires an explicit production network boundary', () => {
+    expect(loadConfig(validEnvironment).host).toBe('127.0.0.1');
+    expect(loadConfig({ ...validEnvironment, NODE_ENV: 'production' }).host).toBe('0.0.0.0');
+    expect(loadConfig({ ...validEnvironment, HOST: '::1' }).host).toBe('::1');
+    expect(() => loadConfig({ ...validEnvironment, HOST: 'api.example.test' })).toThrow(
+      'HOST must be localhost or an IP address',
+    );
   });
 
   it('requires one HTTP(S) frontend origin and normalizes a trailing slash', () => {

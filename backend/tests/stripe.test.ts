@@ -42,6 +42,7 @@ function harness(sessionUrl: string | null = null) {
   } as unknown as Stripe;
   const provider = new StripeBillingProvider({
     port: 4000,
+    host: '127.0.0.1',
     frontendUrl: 'http://localhost:3000',
     openFoodFactsUserAgent: 'test',
     stripeSecretKey: 'sk_test_fake',
@@ -54,6 +55,7 @@ describe('Stripe Checkout creation', () => {
   it('disables billing only when every Stripe setting is absent', () => {
     expect(createBillingProvider({
       port: 4000,
+      host: '127.0.0.1',
       frontendUrl: 'http://localhost:3000',
       openFoodFactsUserAgent: 'test',
     }, {} as Repository)).toBeNull();
@@ -62,6 +64,7 @@ describe('Stripe Checkout creation', () => {
   it('refuses partial Stripe configuration', () => {
     expect(() => createBillingProvider({
       port: 4000,
+      host: '127.0.0.1',
       frontendUrl: 'http://localhost:3000',
       openFoodFactsUserAgent: 'test',
       stripeSecretKey: 'sk_test_incomplete',
@@ -71,6 +74,7 @@ describe('Stripe Checkout creation', () => {
   it('refuses to initialize with a live-mode key', () => {
     expect(() => createBillingProvider({
       port: 4000,
+      host: '127.0.0.1',
       frontendUrl: 'http://localhost:3000',
       openFoodFactsUserAgent: 'test',
       stripeSecretKey: 'sk_live_forbidden',
@@ -82,6 +86,7 @@ describe('Stripe Checkout creation', () => {
   it('accepts a least-privilege restricted test key', () => {
     expect(createBillingProvider({
       port: 4000,
+      host: '127.0.0.1',
       frontendUrl: 'http://localhost:3000',
       openFoodFactsUserAgent: 'test',
       stripeSecretKey: 'rk_test_fake',

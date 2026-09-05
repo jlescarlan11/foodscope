@@ -59,7 +59,7 @@ function harness(status = 'inactive') {
   } as unknown as Stripe.Event;
   const currentSubscription = { id: 'sub_test', status: 'active' } as Stripe.Subscription;
   const dependencies: AppDependencies = {
-    config: { port: 4000, frontendUrl: 'http://localhost:3000', openFoodFactsUserAgent: 'test' },
+    config: { port: 4000, host: '127.0.0.1', frontendUrl: 'http://localhost:3000', openFoodFactsUserAgent: 'test' },
     repository,
     products: { search: vi.fn(async () => [product]) },
     billing: {
