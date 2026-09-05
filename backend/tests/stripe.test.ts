@@ -78,6 +78,17 @@ describe('Stripe Checkout creation', () => {
     }, {} as Repository)).toThrow('only supports Stripe test mode');
   });
 
+  it('accepts a least-privilege restricted test key', () => {
+    expect(createBillingProvider({
+      port: 4000,
+      frontendUrl: 'http://localhost:3000',
+      openFoodFactsUserAgent: 'test',
+      stripeSecretKey: 'rk_test_fake',
+      stripeWebhookSecret: 'whsec_fake',
+      stripePriceId: 'price_fake',
+    }, {} as Repository)).toBeInstanceOf(StripeBillingProvider);
+  });
+
   it('uses stable idempotency keys and durably saves the reusable Session', async () => {
     const setup = harness();
 
