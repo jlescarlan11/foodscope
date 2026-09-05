@@ -753,7 +753,7 @@ describe('Stripe webhook repository', () => {
     const lockQuery = (tx.$queryRaw.mock.calls as unknown[][])[0]?.[0] as {
       values: unknown[];
     };
-    expect(lockQuery.values).toEqual([DEMO_USER_ID, 'cus_demo']);
+    expect(lockQuery.values).toEqual([DEMO_USER_ID, 'sub_current', 'cus_demo']);
     expect(tx.user.findUnique).not.toHaveBeenCalled();
     expect(tx.user.update).not.toHaveBeenCalled();
   });
@@ -788,6 +788,36 @@ describe('Stripe webhook repository', () => {
         subscriptionStatus: 'canceled',
         subscriptionCurrentPeriodEnd: new Date(1_800_000_000 * 1000),
       }),
+    }));
+  });
+
+  it('retrieves a stored Subscription when its delivered Customer is malformed', async () => {
+    const update = vi.fn();
+    const retrieveSubscription = vi.fn(async () => subscription('canceled'));
+    const tx = {
+      stripeWebhookEvent: eventMarker(),
+      $queryRaw: vi.fn(async () => [{ id: DEMO_USER_ID }]),
+      user: {
+        update,
+        findUnique: vi.fn(async () => ({
+          id: DEMO_USER_ID,
+          stripeCustomerId: 'cus_demo',
+          stripeSubscriptionId: 'sub_current',
+          stripeCheckoutAttemptId: null,
+        })),
+      },
+    };
+    const database = {
+      $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<void>) => callback(tx)),
+    } as unknown as typeof prisma;
+    const delivered = subscriptionEvent('evt_malformed_delivered_customer');
+    (delivered.data.object as unknown as Record<string, unknown>).customer = null;
+
+    await createBillingRepository(database).processStripeEvent(delivered, retrieveSubscription);
+
+    expect(retrieveSubscription).toHaveBeenCalledWith('sub_current');
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ subscriptionStatus: 'canceled' }),
     }));
   });
 

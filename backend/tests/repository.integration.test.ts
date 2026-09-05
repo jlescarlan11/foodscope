@@ -100,6 +100,28 @@ integration('Repository with MySQL', () => {
     expect(eventCount).toBe(1);
   });
 
+  it('recovers stored Subscription state when the delivered Customer is malformed', async () => {
+    await database.user.update({
+      where: { id: DEMO_USER_ID },
+      data: {
+        stripeCustomerId: 'cus_integration',
+        stripeSubscriptionId: 'sub_integration',
+        subscriptionStatus: 'active',
+        subscriptionCurrentPeriodEnd: new Date(1_900_000_000 * 1000),
+      },
+    });
+    const delivered = event('evt_malformed_customer_recovery', 'canceled');
+    (delivered.data.object as unknown as Record<string, unknown>).customer = null;
+
+    await subject.processStripeEvent(delivered, async () => subscription('canceled'));
+
+    await expect(database.user.findUniqueOrThrow({ where: { id: DEMO_USER_ID } }))
+      .resolves.toMatchObject({
+        subscriptionStatus: 'canceled',
+        subscriptionCurrentPeriodEnd: new Date(1_800_000_000 * 1000),
+      });
+  });
+
   it('never mutates a non-demo user through customer fallback', async () => {
     const otherUserId = '00000000-0000-4000-8000-000000000099';
     await database.stripeWebhookEvent.deleteMany({ where: { id: 'evt_other_user' } });

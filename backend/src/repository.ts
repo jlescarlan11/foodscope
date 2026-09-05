@@ -74,12 +74,13 @@ function isSubscriptionLocator(value: unknown): value is Stripe.Subscription {
   return isRecord(value) &&
     value.object === 'subscription' &&
     value.livemode === false &&
-    isStripeOpaqueId(value.id) &&
-    activeCustomerId(value.customer) !== null;
+    isStripeOpaqueId(value.id);
 }
 
 function isSubscriptionReference(value: unknown): value is Stripe.Subscription {
-  return isSubscriptionLocator(value) && isRecord(value.metadata);
+  return isSubscriptionLocator(value) &&
+    activeCustomerId(value.customer) !== null &&
+    isRecord(value.metadata);
 }
 
 async function resolveUserFromSubscription(
@@ -103,10 +104,10 @@ async function lockSubscriptionUser(
   subscription: Stripe.Subscription,
 ) {
   const customerId = activeCustomerId(subscription.customer);
-  if (!customerId) return false;
   const rows = await database.$queryRaw<Array<{ id: string }>>(Prisma.sql`
     SELECT id FROM User
-    WHERE id = ${DEMO_USER_ID} AND stripeCustomerId = ${customerId}
+    WHERE id = ${DEMO_USER_ID}
+      AND (stripeSubscriptionId = ${subscription.id} OR stripeCustomerId = ${customerId})
     FOR UPDATE
   `);
   return rows.length > 0;
