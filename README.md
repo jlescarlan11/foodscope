@@ -68,12 +68,12 @@ The backend and frontend receive separate local env copies because workspace too
 
 ## Database
 
-`User` stores the fixed demo account and Stripe subscription state. `RecentSearch` belongs to that user and is indexed by user/time. `StripeWebhookEvent` stores Stripe event IDs so repeated webhook delivery is harmless.
+`User` stores the fixed demo account and Stripe subscription state. `RecentSearch` belongs to that user and is indexed by user/time. `StripeWebhookEvent` stores Stripe event IDs so repeated webhook delivery is harmless. The seed creates the demo user only when missing and preserves all existing subscription, webhook, and search data.
 
 ```bash
 npm run db:generate   # generate Prisma Client
 npm run db:migrate    # apply committed migrations
-npm run db:seed       # reset assessment data and upsert the one fixed user
+npm run db:seed       # create the one fixed user if it does not exist
 ```
 
 The deterministic ID is `00000000-0000-4000-8000-000000000001`; there is intentionally no API that accepts a user ID.
