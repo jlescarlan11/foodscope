@@ -71,6 +71,10 @@ export class StripeBillingProvider implements BillingProvider {
 }
 
 export function createBillingProvider(config: AppConfig, repository: Repository) {
-  if (!config.stripeSecretKey) return null;
+  const stripeValues = [config.stripeSecretKey, config.stripeWebhookSecret, config.stripePriceId];
+  if (stripeValues.every((value) => !value)) return null;
+  if (stripeValues.some((value) => !value)) {
+    throw new Error('Stripe configuration requires a test key, webhook secret, and Price ID');
+  }
   return new StripeBillingProvider(config, repository);
 }

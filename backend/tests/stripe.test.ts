@@ -45,12 +45,31 @@ function harness(sessionUrl: string | null = null) {
 }
 
 describe('Stripe Checkout creation', () => {
+  it('disables billing only when every Stripe setting is absent', () => {
+    expect(createBillingProvider({
+      port: 4000,
+      frontendUrl: 'http://localhost:3000',
+      openFoodFactsUserAgent: 'test',
+    }, {} as Repository)).toBeNull();
+  });
+
+  it('refuses partial Stripe configuration', () => {
+    expect(() => createBillingProvider({
+      port: 4000,
+      frontendUrl: 'http://localhost:3000',
+      openFoodFactsUserAgent: 'test',
+      stripeSecretKey: 'sk_test_incomplete',
+    }, {} as Repository)).toThrow('requires a test key, webhook secret, and Price ID');
+  });
+
   it('refuses to initialize with a live-mode key', () => {
     expect(() => createBillingProvider({
       port: 4000,
       frontendUrl: 'http://localhost:3000',
       openFoodFactsUserAgent: 'test',
       stripeSecretKey: 'sk_live_forbidden',
+      stripeWebhookSecret: 'whsec_fake',
+      stripePriceId: 'price_fake',
     }, {} as Repository)).toThrow('only supports Stripe test mode');
   });
 
