@@ -174,8 +174,48 @@ describe('Stripe webhook repository', () => {
 
     expect(update).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: DEMO_USER_ID },
-      data: expect.objectContaining({ stripeSubscriptionId: 'sub_current', subscriptionStatus: 'active' }),
+      data: expect.objectContaining({
+        stripeSubscriptionId: 'sub_current',
+        subscriptionStatus: 'active',
+        stripeCheckoutAttemptId: null,
+        stripeCheckoutSessionId: null,
+        stripeCheckoutSessionUrl: null,
+        stripeCheckoutExpiresAt: null,
+      }),
     }));
+  });
+
+  it('preserves a new Checkout attempt when an old terminal subscription event arrives', async () => {
+    const update = vi.fn();
+    const tx = {
+      stripeWebhookEvent: { create: vi.fn() },
+      $queryRaw: vi.fn(async () => [{ id: DEMO_USER_ID }]),
+      user: {
+        update,
+        findUnique: vi.fn(async () => ({
+          id: DEMO_USER_ID,
+          stripeCustomerId: 'cus_demo',
+          stripeSubscriptionId: 'sub_current',
+          stripeCheckoutAttemptId: 'attempt_recovery',
+        })),
+      },
+    };
+    const database = {
+      $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<void>) => callback(tx)),
+      stripeWebhookEvent: { findUnique: vi.fn() },
+    } as unknown as typeof prisma;
+
+    await createRepository(database).processStripeEvent(
+      subscriptionEvent('evt_old_terminal'),
+      async () => subscription('canceled'),
+    );
+
+    const data = update.mock.calls[0]?.[0].data as Record<string, unknown>;
+    expect(data).toMatchObject({ stripeSubscriptionId: 'sub_current', subscriptionStatus: 'canceled' });
+    expect(data).not.toHaveProperty('stripeCheckoutAttemptId');
+    expect(data).not.toHaveProperty('stripeCheckoutSessionId');
+    expect(data).not.toHaveProperty('stripeCheckoutSessionUrl');
+    expect(data).not.toHaveProperty('stripeCheckoutExpiresAt');
   });
 
   it('does not call Stripe for a subscription event that cannot map to the demo user', async () => {

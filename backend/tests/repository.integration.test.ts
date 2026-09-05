@@ -239,4 +239,42 @@ integration('Repository with MySQL', () => {
     await expect(subject.getOrCreateCheckoutAttempt(DEMO_USER_ID))
       .rejects.toBeInstanceOf(CheckoutUnavailableError);
   });
+
+  it('keeps a recovery attempt through an old terminal event and accepts its handoff', async () => {
+    await database.user.update({
+      where: { id: DEMO_USER_ID },
+      data: {
+        stripeSubscriptionId: 'sub_integration',
+        subscriptionStatus: 'canceled',
+        stripeCheckoutAttemptId: null,
+        stripeCheckoutSessionId: null,
+        stripeCheckoutSessionUrl: null,
+        stripeCheckoutExpiresAt: null,
+      },
+    });
+    const attempt = await subject.getOrCreateCheckoutAttempt(DEMO_USER_ID);
+
+    await subject.processStripeEvent(
+      event('evt_old_terminal_during_recovery', 'canceled'),
+      async () => subscription('canceled'),
+    );
+    await expect(database.user.findUniqueOrThrow({ where: { id: DEMO_USER_ID } }))
+      .resolves.toMatchObject({ stripeCheckoutAttemptId: attempt.id });
+
+    const replacement = subscription('active');
+    replacement.id = 'sub_replacement';
+    replacement.metadata.checkoutAttemptId = attempt.id;
+    await subject.processStripeEvent({
+      id: 'evt_replacement_handoff',
+      type: 'customer.subscription.created',
+      data: { object: replacement },
+    } as unknown as Stripe.Event, async () => replacement);
+
+    await expect(database.user.findUniqueOrThrow({ where: { id: DEMO_USER_ID } }))
+      .resolves.toMatchObject({
+        stripeSubscriptionId: replacement.id,
+        subscriptionStatus: 'active',
+        stripeCheckoutAttemptId: null,
+      });
+  });
 });

@@ -234,6 +234,8 @@ export function createRepository(database: typeof prisma): Repository {
               user.stripeSubscriptionId === currentSubscription.id ||
               isCheckoutHandoff
             )) {
+              const shouldClearCheckoutAttempt = isCheckoutHandoff ||
+                !canStartCheckout(currentSubscription.status);
               const customerId = typeof currentSubscription.customer === 'string'
                 ? currentSubscription.customer
                 : currentSubscription.customer.id;
@@ -244,10 +246,12 @@ export function createRepository(database: typeof prisma): Repository {
                   stripeSubscriptionId: currentSubscription.id,
                   subscriptionStatus: currentSubscription.status,
                   subscriptionCurrentPeriodEnd: subscriptionPeriodEnd(currentSubscription),
-                  stripeCheckoutAttemptId: null,
-                  stripeCheckoutSessionId: null,
-                  stripeCheckoutSessionUrl: null,
-                  stripeCheckoutExpiresAt: null,
+                  ...(shouldClearCheckoutAttempt ? {
+                    stripeCheckoutAttemptId: null,
+                    stripeCheckoutSessionId: null,
+                    stripeCheckoutSessionUrl: null,
+                    stripeCheckoutExpiresAt: null,
+                  } : {}),
                 },
               });
             }
