@@ -106,6 +106,23 @@ describe('Foodscope locale switching', () => {
     expect(screen.getByLabelText('Search products')).toBeEnabled();
   });
 
+  it('distinguishes identical recent queries by their search locale', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const body = String(input).includes('/api/user')
+        ? accountState()
+        : { searches: [
+            { id: 1, query: 'cola', locale: 'en' },
+            { id: 2, query: 'cola', locale: 'de' },
+          ] };
+      return { ok: true, json: async () => body } as Response;
+    }));
+
+    render(<FoodscopeApp />);
+
+    expect(await screen.findByRole('button', { name: 'cola EN' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'cola DE' })).toBeInTheDocument();
+  });
+
   it('aborts an older search and ignores its stale response', async () => {
     let resolveFirst!: (response: Response) => void;
     let resolveSecond!: (response: Response) => void;
@@ -128,8 +145,8 @@ describe('Foodscope locale switching', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<FoodscopeApp />);
 
-    await userEvent.click(await screen.findByRole('button', { name: 'first' }));
-    await userEvent.click(screen.getByRole('button', { name: 'second' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'first EN' }));
+    await userEvent.click(screen.getByRole('button', { name: 'second DE' }));
 
     expect(screen.getByLabelText('Produkte suchen')).toHaveValue('second');
     expect(screen.getByLabelText('Sprache')).toHaveValue('de');
@@ -168,7 +185,7 @@ describe('Foodscope locale switching', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<FoodscopeApp />);
 
-    const recentSearch = await screen.findByRole('button', { name: 'oats' });
+    const recentSearch = await screen.findByRole('button', { name: 'oats EN' });
     await userEvent.dblClick(recentSearch);
     expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/api/products/search')))
       .toHaveLength(1);

@@ -372,7 +372,7 @@ export function FoodscopeApp() {
             <input id="product-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={messages.searchPlaceholder} maxLength={120} />
             <button disabled={loading || !query.trim()}>{loading ? messages.searching : messages.search}<span aria-hidden="true">→</span></button>
           </form>
-          {recent.length > 0 && <div className="recent"><span>{messages.recent}</span><div>{recent.map((item) => <button key={item.id} onClick={() => { const recentLocale = locales.includes(item.locale as Locale) ? item.locale as Locale : locale; setLocale(recentLocale); setQuery(item.query); void runSearch(item.query, recentLocale); }}>{item.query}</button>)}</div></div>}
+          {recent.length > 0 && <div className="recent"><span>{messages.recent}</span><div>{recent.map((item) => <button key={item.id} onClick={() => { const recentLocale = item.locale as Locale; setLocale(recentLocale); setQuery(item.query); void runSearch(item.query, recentLocale); }}>{item.query}<span className="recent-locale">{localeNames[item.locale as Locale]}</span></button>)}</div></div>}
           {checkoutCancelled && <p className="notice" role="status">{messages.checkoutCancelled}</p>}
           {searchError && <p className="alert" role="alert">{messages.error}</p>}
         </div>
