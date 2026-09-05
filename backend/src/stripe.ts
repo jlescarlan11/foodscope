@@ -4,6 +4,11 @@ import type { AppConfig } from './config.js';
 import type { BillingProvider, DemoUser, Repository } from './types.js';
 
 const STRIPE_REQUEST_TIMEOUT_MS = 5_000;
+const TERMINAL_SUBSCRIPTION_STATUSES = new Set<Stripe.Subscription.Status>([
+  'canceled',
+  'incomplete_expired',
+  'unpaid',
+]);
 
 function integrationIdentifier(attemptId: string) {
   const alphabet = 'abcdefghijklmnopqrstuvwxyz';
@@ -47,7 +52,19 @@ export class StripeBillingProvider implements BillingProvider {
     if (storedSessionUrl) return { url: storedSessionUrl };
 
     let customerId = user.stripeCustomerId;
-    if (!customerId) {
+    if (customerId) {
+      const subscriptions = await this.stripe.subscriptions.list({
+        customer: customerId,
+        status: 'all',
+        limit: 100,
+      });
+      if (
+        subscriptions.has_more ||
+        subscriptions.data.some(({ status }) => !TERMINAL_SUBSCRIPTION_STATUSES.has(status))
+      ) {
+        throw new Error('Stripe customer already has a non-terminal subscription');
+      }
+    } else {
       const customer = await this.stripe.customers.create({
         email: user.email,
         metadata: { demoUserId: user.id },

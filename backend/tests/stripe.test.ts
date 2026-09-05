@@ -30,9 +30,14 @@ function harness(sessionUrl: string | null = null) {
     url: 'https://checkout.stripe.test/session',
     expires_at: Math.floor(attempt.expiresAt.getTime() / 1000),
   }));
+  const subscriptionsList = vi.fn(async (): Promise<{
+    data: Array<{ status: Stripe.Subscription.Status }>;
+    has_more: boolean;
+  }> => ({ data: [], has_more: false }));
   const stripe = {
     customers: { create: customersCreate },
     checkout: { sessions: { create: sessionsCreate } },
+    subscriptions: { list: subscriptionsList },
   } as unknown as Stripe;
   const provider = new StripeBillingProvider({
     port: 4000,
@@ -41,7 +46,7 @@ function harness(sessionUrl: string | null = null) {
     stripeSecretKey: 'sk_test_fake',
     stripePriceId: 'price_test',
   }, repository, stripe);
-  return { provider, repository, customersCreate, sessionsCreate, attempt };
+  return { provider, repository, customersCreate, sessionsCreate, subscriptionsList, attempt };
 }
 
 describe('Stripe Checkout creation', () => {
@@ -136,5 +141,40 @@ describe('Stripe Checkout creation', () => {
 
     await expect(setup.provider.createCheckout(user)).rejects.toThrow('safe Checkout URL');
     expect(setup.repository.completeCheckoutAttempt).not.toHaveBeenCalled();
+  });
+
+  it('does not create another Session when the Customer has a non-terminal subscription', async () => {
+    const setup = harness();
+    setup.subscriptionsList.mockResolvedValueOnce({
+      data: [{ status: 'active' }],
+      has_more: false,
+    });
+
+    await expect(setup.provider.createCheckout({
+      ...user,
+      stripeCustomerId: 'cus_existing',
+    })).rejects.toThrow('already has a non-terminal subscription');
+    expect(setup.subscriptionsList).toHaveBeenCalledWith({
+      customer: 'cus_existing',
+      status: 'all',
+      limit: 100,
+    });
+    expect(setup.sessionsCreate).not.toHaveBeenCalled();
+    expect(setup.repository.completeCheckoutAttempt).not.toHaveBeenCalled();
+  });
+
+  it('allows recovery after only terminal subscriptions', async () => {
+    const setup = harness();
+    setup.subscriptionsList.mockResolvedValueOnce({
+      data: [{ status: 'canceled' }, { status: 'incomplete_expired' }, { status: 'unpaid' }],
+      has_more: false,
+    });
+
+    await expect(setup.provider.createCheckout({
+      ...user,
+      stripeCustomerId: 'cus_existing',
+    })).resolves.toEqual({ url: 'https://checkout.stripe.test/session' });
+    expect(setup.customersCreate).not.toHaveBeenCalled();
+    expect(setup.sessionsCreate).toHaveBeenCalledOnce();
   });
 });
