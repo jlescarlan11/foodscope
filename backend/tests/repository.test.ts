@@ -792,6 +792,10 @@ describe('Stripe webhook repository', () => {
 
   it.each([
     ['non-Session object', { object: 'invoice', livemode: false, mode: 'subscription', status: 'expired' }],
+    ['non-Customer expanded reference', {
+      customer: { id: 'cus_demo', object: 'invoice' },
+      livemode: false, mode: 'subscription', status: 'expired',
+    }],
     ['live-mode Session', { livemode: true, mode: 'subscription', status: 'expired' }],
     ['non-subscription Session', { livemode: false, mode: 'payment', status: 'expired' }],
     ['unexpired Session', { livemode: false, mode: 'subscription', status: 'open' }],
@@ -852,6 +856,14 @@ describe('Stripe webhook repository', () => {
 
   it.each([
     ['non-Session object', { object: 'invoice', livemode: false, mode: 'subscription', status: 'complete' }],
+    ['non-Customer expanded reference', {
+      customer: { id: 'cus_demo', object: 'invoice' },
+      livemode: false, mode: 'subscription', status: 'complete',
+    }],
+    ['non-Subscription expanded reference', {
+      subscription: { id: 'sub_untrusted', object: 'invoice' },
+      livemode: false, mode: 'subscription', status: 'complete',
+    }],
     ['live-mode Session', { livemode: true, mode: 'subscription', status: 'complete' }],
     ['non-subscription Session', { livemode: false, mode: 'payment', status: 'complete' }],
     ['incomplete Session', { livemode: false, mode: 'subscription', status: 'open' }],

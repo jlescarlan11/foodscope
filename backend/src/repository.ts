@@ -42,9 +42,9 @@ function isUniqueConstraintError(error: unknown) {
   return isRecord(error) && error.code === 'P2002';
 }
 
-function expandableId(value: unknown) {
+function expandableId(value: unknown, objectType: string) {
   if (isStripeOpaqueId(value)) return value;
-  if (isRecord(value) && isStripeOpaqueId(value.id)) return value.id;
+  if (isRecord(value) && value.object === objectType && isStripeOpaqueId(value.id)) return value.id;
   return null;
 }
 
@@ -59,7 +59,7 @@ function isSubscriptionReference(value: unknown): value is Stripe.Subscription {
     value.object === 'subscription' &&
     value.livemode === false &&
     isStripeOpaqueId(value.id) &&
-    expandableId(value.customer) !== null &&
+    expandableId(value.customer, 'customer') !== null &&
     isRecord(value.metadata);
 }
 
@@ -293,8 +293,10 @@ export function createRepository(database: typeof prisma, stripePriceId?: string
             const sessionId = isRecord(session) && isStripeOpaqueId(session.id)
               ? session.id
               : null;
-            const customerId = isRecord(session) ? expandableId(session.customer) : null;
-            const subscriptionId = isRecord(session) ? expandableId(session.subscription) : null;
+            const customerId = isRecord(session) ? expandableId(session.customer, 'customer') : null;
+            const subscriptionId = isRecord(session)
+              ? expandableId(session.subscription, 'subscription')
+              : null;
             const metadata = isRecord(session) && isRecord(session.metadata) ? session.metadata : null;
             if (
               isRecord(session) && sessionId && customerId && subscriptionId &&
@@ -320,7 +322,7 @@ export function createRepository(database: typeof prisma, stripePriceId?: string
             const sessionId = isRecord(session) && isStripeOpaqueId(session.id)
               ? session.id
               : null;
-            const customerId = isRecord(session) ? expandableId(session.customer) : null;
+            const customerId = isRecord(session) ? expandableId(session.customer, 'customer') : null;
             const metadata = isRecord(session) && isRecord(session.metadata)
               ? session.metadata
               : null;
@@ -353,7 +355,7 @@ export function createRepository(database: typeof prisma, stripePriceId?: string
             const customer = eventObject(event);
             const customerId = isRecord(customer) &&
               customer.object === 'customer' && customer.deleted === true
-              ? expandableId(customer)
+              ? expandableId(customer, 'customer')
               : null;
             if (customerId) {
               await tx.user.updateMany({
