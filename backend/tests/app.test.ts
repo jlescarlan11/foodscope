@@ -296,6 +296,47 @@ describe('Foodscope API', () => {
     expect(setup.dependencies.billing!.createCheckout).not.toHaveBeenCalled();
   });
 
+  it('does not start Stripe work after disconnecting during the Checkout account read', async () => {
+    const setup = harness();
+    let accountReadStarted: (() => void) | undefined;
+    let releaseAccountRead: (() => void) | undefined;
+    const accountRead = new Promise<void>((resolve) => { accountReadStarted = resolve; });
+    const release = new Promise<void>((resolve) => { releaseAccountRead = resolve; });
+    vi.mocked(setup.repository.getDemoUser).mockImplementationOnce(async () => {
+      accountReadStarted?.();
+      await release;
+      return baseUser;
+    });
+    const server = setup.app.listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => server.once('listening', resolve));
+    const connectionClosed = new Promise<void>((resolve) => {
+      server.once('connection', (socket) => socket.once('close', () => resolve()));
+    });
+
+    try {
+      const address = server.address();
+      if (!address || typeof address === 'string') throw new Error('Expected a TCP listener');
+      const controller = new AbortController();
+      const response = fetch(`http://127.0.0.1:${address.port}/api/billing/checkout-session`, {
+        method: 'POST',
+        headers: { origin: 'http://localhost:3000' },
+        signal: controller.signal,
+      }).catch(() => undefined);
+
+      await accountRead;
+      controller.abort();
+      await response;
+      await connectionClosed;
+      releaseAccountRead?.();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      expect(setup.dependencies.billing!.createCheckout).not.toHaveBeenCalled();
+    } finally {
+      releaseAccountRead?.();
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+  });
+
   it('allows Checkout creation from the configured frontend origin', async () => {
     const setup = harness();
 

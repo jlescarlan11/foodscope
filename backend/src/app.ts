@@ -234,7 +234,12 @@ export function createApp(deps: AppDependencies) {
         res.status(503).json({ error: 'Stripe is not configured' });
         return;
       }
+      let responseClosed = false;
+      res.once('close', () => {
+        if (!res.writableEnded) responseClosed = true;
+      });
       const user = await deps.repository.getDemoUser();
+      if (responseClosed) return;
       if (!user) {
         res.status(503).json({ error: 'Demo user is not initialized' });
         return;
