@@ -501,6 +501,38 @@ describe('Foodscope locale switching', () => {
     expect(screen.queryByText('Searching…')).not.toBeInTheDocument();
   });
 
+  it('allows a bounded provider retry to complete before the browser deadline', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', vi.fn((input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/api/user')) {
+        return Promise.resolve({ ok: true, json: async () => accountState() } as Response);
+      }
+      if (url.includes('/api/searches/recent')) {
+        return Promise.resolve({ ok: true, json: async () => ({ searches: [] }) } as Response);
+      }
+      return new Promise<Response>((resolve, reject) => {
+        const completion = window.setTimeout(() => resolve({
+          ok: true,
+          json: async () => ({ products: [] }),
+        } as Response), 23_000);
+        init?.signal?.addEventListener('abort', () => {
+          window.clearTimeout(completion);
+          reject(init.signal?.reason);
+        }, { once: true });
+      });
+    }));
+    render(<FoodscopeApp />);
+    await act(async () => Promise.resolve());
+
+    fireEvent.change(screen.getByLabelText('Search products'), { target: { value: 'oats' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Search/ }));
+    await act(async () => vi.advanceTimersByTimeAsync(23_000));
+
+    expect(screen.getByText('No matching products found. Try another term.')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('re-enables Checkout when its request never responds', async () => {
     vi.useFakeTimers();
     vi.stubGlobal('fetch', vi.fn((input: string | URL | Request, init?: RequestInit) => {

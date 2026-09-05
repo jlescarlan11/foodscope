@@ -21,7 +21,7 @@ const nutritionUnits: Record<keyof Nutrition, 'g' | 'kcal'> = {
 };
 export const REQUEST_TIMEOUT_MS = {
   account: 8_000,
-  search: 22_000,
+  search: 28_000,
   checkout: 20_000,
 } as const;
 
