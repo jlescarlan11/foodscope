@@ -42,10 +42,14 @@ function harness(sessionUrl: string | null = null, customerId: string | null = n
   const customersCreate = vi.fn(async (
     params?: unknown,
     options?: { idempotencyKey?: string },
-  ) => {
+  ): Promise<Record<string, unknown>> => {
     void params;
     void options;
-    return { id: 'cus_test' };
+    return {
+      id: 'cus_test',
+      livemode: false,
+      metadata: { demoUserId: user.id },
+    };
   });
   const customersRetrieve = vi.fn(async (id: string): Promise<{
     id: string;
@@ -284,6 +288,28 @@ describe('Stripe Checkout creation', () => {
     expect(setup.repository.getOrCreateCheckoutAttempt).toHaveBeenCalledTimes(2);
     expect(setup.customersCreate).toHaveBeenCalledTimes(2);
     expect(setup.sessionsCreate).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    { id: '' },
+    { id: 'c'.repeat(256) },
+    { livemode: true },
+    { metadata: {} },
+    { metadata: { demoUserId: 'unexpected-user' } },
+  ])('does not persist a contract-invalid new Customer %#', async (override) => {
+    const setup = harness();
+    setup.customersCreate.mockResolvedValueOnce({
+      id: 'cus_test',
+      livemode: false,
+      metadata: { demoUserId: user.id },
+      ...override,
+    });
+
+    await expect(setup.provider.createCheckout(user)).rejects.toThrow(
+      'valid Stripe Customer',
+    );
+    expect(setup.repository.setStripeCustomer).not.toHaveBeenCalled();
+    expect(setup.sessionsCreate).not.toHaveBeenCalled();
   });
 
   it('returns a stored open Session without creating any Stripe resource', async () => {
@@ -620,6 +646,24 @@ describe('Stripe Checkout creation', () => {
       expect.objectContaining({ customer: 'cus_test' }),
       expect.anything(),
     );
+  });
+
+  it('does not replace a deleted Customer with misattributed provider output', async () => {
+    const setup = harness(null, 'cus_deleted');
+    setup.customersRetrieve.mockResolvedValueOnce({ id: 'cus_deleted', deleted: true });
+    setup.customersCreate.mockResolvedValueOnce({
+      id: 'cus_wrong_owner',
+      livemode: false,
+      metadata: { demoUserId: 'unexpected-user' },
+    });
+
+    await expect(setup.provider.createCheckout({
+      ...user,
+      stripeCustomerId: 'cus_deleted',
+    })).rejects.toThrow('valid Stripe Customer');
+
+    expect(setup.repository.replaceStripeCustomer).not.toHaveBeenCalled();
+    expect(setup.sessionsCreate).not.toHaveBeenCalled();
   });
 
   it('does not create resources when the stored Customer read fails', async () => {

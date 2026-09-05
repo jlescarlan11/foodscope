@@ -48,6 +48,17 @@ function expandableId(value: unknown) {
   return null;
 }
 
+function createdCustomerId(value: unknown, demoUserId: string) {
+  if (typeof value !== 'object' || value === null) return null;
+  const customer = value as Record<string, unknown>;
+  return isStripeOpaqueId(customer.id) &&
+    customer.livemode === false &&
+    typeof customer.metadata === 'object' && customer.metadata !== null &&
+    (customer.metadata as Record<string, unknown>).demoUserId === demoUserId
+    ? customer.id
+    : null;
+}
+
 function isStaleCheckoutExpiryError(error: unknown, expiresAt: Date) {
   return error instanceof Stripe.errors.StripeInvalidRequestError &&
     error.param === 'expires_at' &&
@@ -134,11 +145,13 @@ export class StripeBillingProvider implements BillingProvider {
           email: user.email,
           metadata: { demoUserId: user.id },
         }, { idempotencyKey: replacementCustomerIdempotencyKey(customerId) });
+        const replacementCustomerId = createdCustomerId(replacement, user.id);
+        if (!replacementCustomerId) throw new Error('Stripe did not return a valid Stripe Customer');
         customerId = await this.repository.replaceStripeCustomer(
           user.id,
           customerId,
           attempt.id,
-          replacement.id,
+          replacementCustomerId,
         );
         return this.createCheckoutOnce(
           user,
@@ -167,7 +180,8 @@ export class StripeBillingProvider implements BillingProvider {
         email: user.email,
         metadata: { demoUserId: user.id },
       }, { idempotencyKey: 'foodscope-demo-customer-v1' });
-      customerId = customer.id;
+      customerId = createdCustomerId(customer, user.id);
+      if (!customerId) throw new Error('Stripe did not return a valid Stripe Customer');
       await this.repository.setStripeCustomer(user.id, customerId);
     }
     if (storedSessionUrl) return { url: storedSessionUrl };
