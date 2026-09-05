@@ -47,17 +47,20 @@ function harness(sessionUrl: string | null = null, customerId: string | null = n
     void options;
     return {
       id: 'cus_test',
+      object: 'customer',
       livemode: false,
       metadata: { demoUserId: user.id },
     };
   });
   const customersRetrieve = vi.fn(async (id: string): Promise<{
     id: string;
+    object: string;
     deleted: boolean;
     livemode?: boolean;
     metadata?: Record<string, unknown>;
   }> => ({
     id,
+    object: 'customer',
     deleted: false,
     livemode: false,
     metadata: { demoUserId: user.id },
@@ -294,6 +297,7 @@ describe('Stripe Checkout creation', () => {
   });
 
   it.each([
+    { object: 'invoice' },
     { id: '' },
     { id: 'c'.repeat(256) },
     { livemode: true },
@@ -303,6 +307,7 @@ describe('Stripe Checkout creation', () => {
     const setup = harness();
     setup.customersCreate.mockResolvedValueOnce({
       id: 'cus_test',
+      object: 'customer',
       livemode: false,
       metadata: { demoUserId: user.id },
       ...override,
@@ -338,6 +343,7 @@ describe('Stripe Checkout creation', () => {
   });
 
   it.each([
+    { object: 'invoice', livemode: false, metadata: { demoUserId: user.id } },
     { livemode: false, metadata: {} },
     { livemode: false, metadata: { demoUserId: 'unexpected-user' } },
     { livemode: true, metadata: { demoUserId: user.id } },
@@ -345,6 +351,7 @@ describe('Stripe Checkout creation', () => {
     const setup = harness('https://checkout.stripe.test/misattributed', 'cus_other');
     setup.customersRetrieve.mockResolvedValueOnce({
       id: 'cus_other',
+      object: 'customer',
       deleted: false,
       ...customer,
     });
@@ -381,8 +388,11 @@ describe('Stripe Checkout creation', () => {
       .mockResolvedValueOnce(replacementAttempt);
     setup.customersRetrieve.mockImplementation(async (id) =>
       id === 'cus_deleted'
-        ? { id, deleted: true }
-        : { id, deleted: false, livemode: false, metadata: { demoUserId: user.id } });
+        ? { id, object: 'customer', deleted: true }
+        : {
+          id, object: 'customer', deleted: false, livemode: false,
+          metadata: { demoUserId: user.id },
+        });
 
     await expect(setup.provider.createCheckout({
       ...user,
@@ -674,7 +684,9 @@ describe('Stripe Checkout creation', () => {
     vi.mocked(setup.repository.getOrCreateCheckoutAttempt)
       .mockResolvedValueOnce(setup.attempt)
       .mockResolvedValueOnce(replacementAttempt);
-    setup.customersRetrieve.mockResolvedValueOnce({ id: 'cus_deleted', deleted: true });
+    setup.customersRetrieve.mockResolvedValueOnce({
+      id: 'cus_deleted', object: 'customer', deleted: true,
+    });
 
     await expect(setup.provider.createCheckout({
       ...user,
@@ -704,9 +716,12 @@ describe('Stripe Checkout creation', () => {
 
   it('does not replace a deleted Customer with misattributed provider output', async () => {
     const setup = harness(null, 'cus_deleted');
-    setup.customersRetrieve.mockResolvedValueOnce({ id: 'cus_deleted', deleted: true });
+    setup.customersRetrieve.mockResolvedValueOnce({
+      id: 'cus_deleted', object: 'customer', deleted: true,
+    });
     setup.customersCreate.mockResolvedValueOnce({
       id: 'cus_wrong_owner',
+      object: 'customer',
       livemode: false,
       metadata: { demoUserId: 'unexpected-user' },
     });
@@ -748,8 +763,11 @@ describe('Stripe Checkout creation', () => {
       .mockResolvedValueOnce(replacementAttempt);
     setup.customersRetrieve.mockImplementation(async (id) =>
       id === 'cus_deleted'
-        ? { id, deleted: true }
-        : { id, deleted: false, livemode: false, metadata: { demoUserId: user.id } });
+        ? { id, object: 'customer', deleted: true }
+        : {
+          id, object: 'customer', deleted: false, livemode: false,
+          metadata: { demoUserId: user.id },
+        });
     vi.mocked(setup.repository.replaceStripeCustomer)
       .mockRejectedValueOnce(new Error('temporary database failure'))
       .mockResolvedValueOnce('cus_test');

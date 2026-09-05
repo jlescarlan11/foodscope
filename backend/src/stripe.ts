@@ -52,6 +52,7 @@ function createdCustomerId(value: unknown, demoUserId: string) {
   if (typeof value !== 'object' || value === null) return null;
   const customer = value as Record<string, unknown>;
   return isStripeOpaqueId(customer.id) &&
+    customer.object === 'customer' &&
     customer.livemode === false &&
     typeof customer.metadata === 'object' && customer.metadata !== null &&
     (customer.metadata as Record<string, unknown>).demoUserId === demoUserId
@@ -175,7 +176,10 @@ export class StripeBillingProvider implements BillingProvider {
           false,
         );
       }
-      if (customer.livemode !== false || customer.metadata?.demoUserId !== user.id) {
+      if (
+        customer.object !== 'customer' ||
+        customer.livemode !== false || customer.metadata?.demoUserId !== user.id
+      ) {
         throw new CheckoutUnavailableError();
       }
       if (storedSessionUrl) return { url: storedSessionUrl };
