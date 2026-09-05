@@ -165,6 +165,26 @@ describe('Foodscope API', () => {
     expect(setup.repository.processStripeEvent).not.toHaveBeenCalled();
   });
 
+  it('acknowledges an irrelevant verified event without Stripe or database work', async () => {
+    const setup = harness();
+    vi.mocked(setup.dependencies.billing!.constructEvent).mockReturnValueOnce({
+      id: 'evt_irrelevant',
+      type: 'customer.created',
+      data: { object: {} },
+    } as Stripe.Event);
+
+    const response = await request(setup.app)
+      .post('/api/webhooks/stripe')
+      .set('stripe-signature', 'valid')
+      .set('content-type', 'application/json')
+      .send('{}');
+
+    expect(response.status).toBe(200);
+    expect(setup.repository.isStripeEventProcessed).not.toHaveBeenCalled();
+    expect(setup.dependencies.billing!.retrieveSubscription).not.toHaveBeenCalled();
+    expect(setup.repository.processStripeEvent).not.toHaveBeenCalled();
+  });
+
   it('returns a retryable failure without processing when current Stripe state cannot be loaded', async () => {
     const setup = harness();
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);

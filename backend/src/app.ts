@@ -20,6 +20,13 @@ const searchSchema = z.object({
   lang: z.enum(SUPPORTED_LOCALES).default('en'),
 });
 
+const relevantStripeEventTypes = new Set<Stripe.Event.Type>([
+  'checkout.session.completed',
+  'customer.subscription.created',
+  'customer.subscription.updated',
+  'customer.subscription.deleted',
+]);
+
 const asyncRoute =
   (handler: (req: Request, res: Response) => Promise<void>) =>
   (req: Request, res: Response, next: NextFunction) => handler(req, res).catch(next);
@@ -50,14 +57,15 @@ export function createApp(deps: AppDependencies) {
         res.status(400).json({ error: 'Invalid webhook signature' });
         return;
       }
+      if (!relevantStripeEventTypes.has(event.type)) {
+        res.json({ received: true });
+        return;
+      }
       if (await deps.repository.isStripeEventProcessed(event.id)) {
         res.json({ received: true });
         return;
       }
-      const subscriptionEvent =
-        event.type === 'customer.subscription.created' ||
-        event.type === 'customer.subscription.updated' ||
-        event.type === 'customer.subscription.deleted';
+      const subscriptionEvent = event.type.startsWith('customer.subscription.');
       const currentSubscription = subscriptionEvent
         ? await deps.billing.retrieveSubscription((event.data.object as Stripe.Subscription).id)
         : undefined;
