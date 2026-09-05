@@ -288,7 +288,7 @@ describe('Foodscope locale switching', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Search/ }));
     await act(async () => vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS.search));
 
-    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('We could not complete that search');
     expect(screen.queryByText('Searching…')).not.toBeInTheDocument();
   });
 
@@ -302,6 +302,9 @@ describe('Foodscope locale switching', () => {
       if (url.includes('/api/searches/recent')) {
         return Promise.resolve({ ok: true, json: async () => ({ searches: [] }) } as Response);
       }
+      if (init?.method !== 'POST') {
+        return Promise.resolve({ ok: true, json: async () => ({ products: [] }) } as Response);
+      }
       return new Promise<Response>((_resolve, reject) => {
         init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
       });
@@ -313,7 +316,12 @@ describe('Foodscope locale switching', () => {
     await act(async () => vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS.checkout));
 
     expect(screen.getByRole('button', { name: 'Unlock nutrition' })).toBeEnabled();
-    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('We could not open Checkout');
+
+    fireEvent.change(screen.getByLabelText('Search products'), { target: { value: 'oats' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Search/ }));
+    await act(async () => Promise.resolve());
+    expect(screen.getByRole('alert')).toHaveTextContent('We could not open Checkout');
   });
 
   it('replaces a failed product image with the unavailable fallback', async () => {

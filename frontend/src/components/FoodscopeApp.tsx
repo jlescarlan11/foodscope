@@ -98,7 +98,8 @@ export function FoodscopeApp() {
   const [accountState, setAccountState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [loading, setLoading] = useState(false);
   const [subscribing, setSubscribing] = useState(false);
-  const [error, setError] = useState(false);
+  const [searchError, setSearchError] = useState(false);
+  const [checkoutError, setCheckoutError] = useState(false);
   const [checkoutCancelled, setCheckoutCancelled] = useState(false);
   const searchSequence = useRef(0);
   const searchController = useRef<AbortController | null>(null);
@@ -175,7 +176,7 @@ export function FoodscopeApp() {
     const controller = new AbortController();
     searchController.current = controller;
     activeSearchKey.current = searchKey;
-    setQuery(clean); setProducts(null); setLoading(true); setError(false);
+    setQuery(clean); setProducts(null); setLoading(true); setSearchError(false);
     try {
       const result = await api<{ products: Product[] }>(
         `/api/products/search?q=${encodeURIComponent(clean)}&lang=${searchLocale}`,
@@ -187,7 +188,7 @@ export function FoodscopeApp() {
       await refreshRecent(controller.signal);
     } catch (searchError) {
       if (requestId === searchSequence.current && !(searchError instanceof DOMException && searchError.name === 'AbortError')) {
-        setError(true); setProducts(null);
+        setSearchError(true); setProducts(null);
       }
     } finally {
       if (requestId === searchSequence.current) {
@@ -203,12 +204,12 @@ export function FoodscopeApp() {
     searchController.current?.abort();
     searchController.current = null;
     activeSearchKey.current = null;
-    setLoading(false); setProducts(null); setError(false); setLocale(nextLocale);
+    setLoading(false); setProducts(null); setSearchError(false); setLocale(nextLocale);
   }
 
   function submit(event: FormEvent) { event.preventDefault(); void runSearch(query); }
   async function subscribe() {
-    setSubscribing(true); setError(false);
+    setSubscribing(true); setCheckoutError(false); setCheckoutCancelled(false);
     try {
       const { url } = await api<{ url: string }>(
         '/api/billing/checkout-session',
@@ -216,7 +217,7 @@ export function FoodscopeApp() {
         REQUEST_TIMEOUT_MS.checkout,
       );
       window.location.assign(url);
-    } catch { setError(true); setSubscribing(false); }
+    } catch { setCheckoutError(true); setSubscribing(false); }
   }
 
   function retryAccount() {
@@ -247,7 +248,7 @@ export function FoodscopeApp() {
           </form>
           {recent.length > 0 && <div className="recent"><span>{messages.recent}</span><div>{recent.map((item) => <button key={item.id} onClick={() => { const recentLocale = locales.includes(item.locale as Locale) ? item.locale as Locale : locale; setLocale(recentLocale); void runSearch(item.query, recentLocale); }}>{item.query}</button>)}</div></div>}
           {checkoutCancelled && <p className="notice" role="status">{messages.checkoutCancelled}</p>}
-          {error && <p className="alert" role="alert">{messages.error}</p>}
+          {searchError && <p className="alert" role="alert">{messages.error}</p>}
         </div>
 
         <aside className="plan-card">
@@ -255,13 +256,14 @@ export function FoodscopeApp() {
           <p>{messages.subscriptionBody}</p>
           {accountState === 'error' && <button onClick={retryAccount}>{messages.retryAccount}<span aria-hidden="true">↻</span></button>}
           {accountState === 'ready' && !user?.nutritionAccess && <button onClick={() => void subscribe()} disabled={subscribing}>{subscribing ? messages.redirecting : messages.subscribe}<span aria-hidden="true">↗</span></button>}
+          {checkoutError && <p className="plan-alert" role="alert">{messages.checkoutError}</p>}
           <small>{messages.monthly}</small>
         </aside>
       </section>
 
       <section className="results-section" aria-live="polite" aria-busy={loading}>
         {products && <div className="results-header"><div><p>{messages.results}</p><span>{products.length} {messages.resultCount}</span></div><button onClick={() => setProducts(null)}>{messages.clear}</button></div>}
-        {!loading && products === null && !error && <div className="empty"><span aria-hidden="true">⌕</span><p>{messages.emptyStart}</p></div>}
+        {!loading && products === null && !searchError && <div className="empty"><span aria-hidden="true">⌕</span><p>{messages.emptyStart}</p></div>}
         {!loading && products?.length === 0 && <div className="empty"><span aria-hidden="true">○</span><p>{messages.emptyResults}</p></div>}
         {loading && <div className="empty"><span className="spinner" aria-hidden="true" /><p>{messages.searching}</p></div>}
         {products && products.length > 0 && <div className="product-grid">{products.map((product) => <ProductCard key={product.id} product={product} messages={messages} />)}</div>}
