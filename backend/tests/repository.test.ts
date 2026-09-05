@@ -678,6 +678,39 @@ describe('Stripe webhook repository', () => {
         customer: 'cus_demo',
         subscription: 's'.repeat(256),
         metadata: { demoUserId: DEMO_USER_ID },
+        livemode: false,
+        mode: 'subscription',
+        status: 'complete',
+      } },
+    } as unknown as Stripe.Event;
+
+    await createBillingRepository(database).processStripeEvent(completed);
+
+    expect(updateMany).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['live-mode Session', { livemode: true, mode: 'subscription', status: 'complete' }],
+    ['non-subscription Session', { livemode: false, mode: 'payment', status: 'complete' }],
+    ['incomplete Session', { livemode: false, mode: 'subscription', status: 'open' }],
+  ])('durably ignores a completed event carrying a %s', async (_description, shape) => {
+    const updateMany = vi.fn();
+    const tx = {
+      stripeWebhookEvent: eventMarker(),
+      user: { updateMany },
+    };
+    const database = {
+      $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<void>) => callback(tx)),
+    } as unknown as typeof prisma;
+    const completed = {
+      id: 'evt_checkout_invalid_shape',
+      type: 'checkout.session.completed',
+      data: { object: {
+        id: 'cs_current',
+        customer: 'cus_demo',
+        subscription: 'sub_untrusted',
+        metadata: { demoUserId: DEMO_USER_ID },
+        ...shape,
       } },
     } as unknown as Stripe.Event;
 

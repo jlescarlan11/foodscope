@@ -42,6 +42,9 @@ function checkoutEvent(id: string, sessionId: string) {
       customer: 'cus_integration',
       subscription: 'sub_checkout',
       metadata: { demoUserId: DEMO_USER_ID },
+      livemode: false,
+      mode: 'subscription',
+      status: 'complete',
     } },
   } as unknown as Stripe.Event;
 }
@@ -490,6 +493,9 @@ integration('Repository with MySQL', () => {
         customer: 'cus_integration',
         subscription: 's'.repeat(256),
         metadata: { demoUserId: DEMO_USER_ID },
+        livemode: false,
+        mode: 'subscription',
+        status: 'complete',
       } },
     } as unknown as Stripe.Event)).resolves.toBeUndefined();
 

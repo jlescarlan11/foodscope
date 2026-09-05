@@ -293,7 +293,13 @@ export function createRepository(database: typeof prisma, stripePriceId?: string
             const customerId = isRecord(session) ? expandableId(session.customer) : null;
             const subscriptionId = isRecord(session) ? expandableId(session.subscription) : null;
             const metadata = isRecord(session) && isRecord(session.metadata) ? session.metadata : null;
-            if (sessionId && metadata?.demoUserId === DEMO_USER_ID && customerId && subscriptionId) {
+            if (
+              isRecord(session) && sessionId && customerId && subscriptionId &&
+              session.livemode === false &&
+              session.mode === 'subscription' &&
+              session.status === 'complete' &&
+              metadata?.demoUserId === DEMO_USER_ID
+            ) {
               await tx.user.updateMany({
                 where: {
                   id: DEMO_USER_ID,
