@@ -1,6 +1,7 @@
 import cors from 'cors';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import helmet from 'helmet';
+import type Stripe from 'stripe';
 import { z } from 'zod';
 import type { AppConfig } from './config.js';
 import { isActiveSubscription, SUPPORTED_LOCALES } from './constants.js';
@@ -48,7 +49,14 @@ export function createApp(deps: AppDependencies) {
         res.status(400).json({ error: 'Invalid webhook signature' });
         return;
       }
-      await deps.repository.processStripeEvent(event);
+      const subscriptionEvent =
+        event.type === 'customer.subscription.created' ||
+        event.type === 'customer.subscription.updated' ||
+        event.type === 'customer.subscription.deleted';
+      const currentSubscription = subscriptionEvent
+        ? await deps.billing.retrieveSubscription((event.data.object as Stripe.Subscription).id)
+        : undefined;
+      await deps.repository.processStripeEvent(event, currentSubscription);
       res.json({ received: true });
     }),
   );

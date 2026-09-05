@@ -47,6 +47,10 @@ export class StripeBillingProvider implements BillingProvider {
     if (!this.config.stripeWebhookSecret) throw new Error('Stripe webhook is not configured');
     return this.stripe.webhooks.constructEvent(body, signature, this.config.stripeWebhookSecret);
   }
+
+  retrieveSubscription(subscriptionId: string) {
+    return this.stripe.subscriptions.retrieve(subscriptionId);
+  }
 }
 
 export function createBillingProvider(config: AppConfig, repository: Repository) {

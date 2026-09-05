@@ -20,9 +20,9 @@ function harness(status = 'inactive') {
     }),
     getRecentSearches: vi.fn(async (_userId: string, limit: number) => searches.slice(0, limit)),
     setStripeCustomer: vi.fn(async (_userId: string, customerId: string) => { user = { ...user, stripeCustomerId: customerId }; }),
-    processStripeEvent: vi.fn(async (event: Stripe.Event) => {
+    processStripeEvent: vi.fn(async (event: Stripe.Event, currentSubscription?: Stripe.Subscription) => {
       if (event.type === 'customer.subscription.updated') {
-        user = { ...user, subscriptionStatus: event.data.object.status };
+        user = { ...user, subscriptionStatus: currentSubscription!.status };
       }
     }),
   };
@@ -30,14 +30,19 @@ function harness(status = 'inactive') {
     id: '3017620422003', name: 'Hazelnut spread', brand: null, image: null,
     nutrition: { fat: 30.9, sugars: 56.3 },
   };
-  const event = { id: 'evt_test', type: 'customer.subscription.updated', data: { object: { status: 'active' } } } as unknown as Stripe.Event;
+  const event = { id: 'evt_test', type: 'customer.subscription.updated', data: { object: { id: 'sub_test', status: 'canceled' } } } as unknown as Stripe.Event;
+  const currentSubscription = { id: 'sub_test', status: 'active' } as Stripe.Subscription;
   const dependencies: AppDependencies = {
     config: { port: 4000, frontendUrl: 'http://localhost:3000', openFoodFactsUserAgent: 'test' },
     repository,
     products: { search: vi.fn(async () => [product]) },
-    billing: { createCheckout: vi.fn(async () => ({ url: 'https://checkout.stripe.test/session' })), constructEvent: vi.fn(() => event) },
+    billing: {
+      createCheckout: vi.fn(async () => ({ url: 'https://checkout.stripe.test/session' })),
+      constructEvent: vi.fn(() => event),
+      retrieveSubscription: vi.fn(async () => currentSubscription),
+    },
   };
-  return { app: createApp(dependencies), repository, dependencies };
+  return { app: createApp(dependencies), repository, dependencies, event, currentSubscription };
 }
 
 describe('Foodscope API', () => {
@@ -78,10 +83,12 @@ describe('Foodscope API', () => {
   });
 
   it('synchronizes subscription events only after signature verification', async () => {
-    const { app, repository } = harness();
+    const { app, repository, dependencies, event, currentSubscription } = harness();
     const response = await request(app).post('/api/webhooks/stripe').set('stripe-signature', 'valid').set('content-type', 'application/json').send('{}');
     expect(response.status).toBe(200);
     expect(repository.processStripeEvent).toHaveBeenCalledOnce();
+    expect(dependencies.billing!.retrieveSubscription).toHaveBeenCalledWith('sub_test');
+    expect(repository.processStripeEvent).toHaveBeenCalledWith(event, currentSubscription);
     expect((await request(app).get('/api/user')).body.nutritionAccess).toBe(true);
   });
 
@@ -90,6 +97,22 @@ describe('Foodscope API', () => {
     vi.mocked(setup.dependencies.billing!.constructEvent).mockImplementationOnce(() => { throw new Error('bad signature'); });
     const response = await request(setup.app).post('/api/webhooks/stripe').set('stripe-signature', 'invalid').set('content-type', 'application/json').send('{}');
     expect(response.status).toBe(400);
+    expect(setup.repository.processStripeEvent).not.toHaveBeenCalled();
+    expect(setup.dependencies.billing!.retrieveSubscription).not.toHaveBeenCalled();
+  });
+
+  it('returns a retryable failure without processing when current Stripe state cannot be loaded', async () => {
+    const setup = harness();
+    vi.mocked(setup.dependencies.billing!.retrieveSubscription).mockRejectedValueOnce(new Error('Stripe unavailable'));
+
+    const response = await request(setup.app)
+      .post('/api/webhooks/stripe')
+      .set('stripe-signature', 'valid')
+      .set('content-type', 'application/json')
+      .send('{}');
+
+    expect(response.status).toBe(500);
+    expect(response.body).toEqual({ error: 'Unexpected server error' });
     expect(setup.repository.processStripeEvent).not.toHaveBeenCalled();
   });
 });

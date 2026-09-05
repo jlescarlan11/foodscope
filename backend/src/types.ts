@@ -37,7 +37,7 @@ export interface Repository {
   saveSearch(userId: string, query: string, locale: Locale): Promise<void>;
   getRecentSearches(userId: string, limit: number): Promise<RecentSearch[]>;
   setStripeCustomer(userId: string, customerId: string): Promise<void>;
-  processStripeEvent(event: Stripe.Event): Promise<void>;
+  processStripeEvent(event: Stripe.Event, currentSubscription?: Stripe.Subscription): Promise<void>;
 }
 
 export interface ProductProvider {
@@ -47,4 +47,5 @@ export interface ProductProvider {
 export interface BillingProvider {
   createCheckout(user: DemoUser): Promise<{ url: string }>;
   constructEvent(body: Buffer, signature: string): Stripe.Event;
+  retrieveSubscription(subscriptionId: string): Promise<Stripe.Subscription>;
 }
