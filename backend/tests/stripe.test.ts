@@ -282,6 +282,35 @@ describe('Stripe Checkout creation', () => {
     expect(setup.repository.completeCheckoutAttempt).toHaveBeenCalledOnce();
   });
 
+  it('bounds sequential stored-Session validation calls', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2030-01-01T00:00:00Z'));
+    try {
+      const setup = harness('https://checkout.stripe.test/existing', 'cus_existing');
+
+      for (let requestNumber = 0; requestNumber < 10; requestNumber += 1) {
+        await expect(setup.provider.createCheckout({
+          ...user,
+          stripeCustomerId: 'cus_existing',
+        })).resolves.toEqual({ url: 'https://checkout.stripe.test/existing' });
+      }
+      await expect(setup.provider.createCheckout({
+        ...user,
+        stripeCustomerId: 'cus_existing',
+      })).rejects.toThrow('Checkout request limit reached');
+      expect(setup.customersRetrieve).toHaveBeenCalledTimes(10);
+
+      vi.advanceTimersByTime(60 * 60 * 1000);
+      await expect(setup.provider.createCheckout({
+        ...user,
+        stripeCustomerId: 'cus_existing',
+      })).resolves.toEqual({ url: 'https://checkout.stripe.test/existing' });
+      expect(setup.customersRetrieve).toHaveBeenCalledTimes(11);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('allows a new Checkout attempt after a coalesced request fails', async () => {
     const setup = harness();
     setup.customersCreate.mockRejectedValueOnce(new Error('temporary provider failure'));

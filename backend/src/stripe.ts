@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import Stripe from 'stripe';
 import type { AppConfig } from './config.js';
-import { CheckoutUnavailableError } from './errors.js';
+import { CheckoutRateLimitError, CheckoutUnavailableError } from './errors.js';
 import {
   isStripePriceId,
   isStripeOpaqueId,
@@ -13,6 +13,8 @@ import type { BillingProvider, DemoUser, Repository } from './types.js';
 
 const STRIPE_REQUEST_TIMEOUT_MS = 5_000;
 const MINIMUM_CHECKOUT_EXPIRY_MS = 30 * 60 * 1000;
+const CHECKOUT_REQUEST_LIMIT = 10;
+const CHECKOUT_REQUEST_WINDOW_MS = 60 * 60 * 1000;
 const TERMINAL_SUBSCRIPTION_STATUSES = new Set<string>([
   'canceled',
   'incomplete_expired',
@@ -90,6 +92,7 @@ function isStaleCheckoutExpiryError(error: unknown, expiresAt: Date) {
 export class StripeBillingProvider implements BillingProvider {
   private readonly stripe: Stripe;
   private readonly checkoutRequests = new Map<string, Promise<{ url: string }>>();
+  private readonly checkoutRequestTimestamps: number[] = [];
   private configuredPriceValidation: Promise<void> | null = null;
   private configuredPriceError: Error | null = null;
   private configuredPriceValidated = false;
@@ -112,6 +115,20 @@ export class StripeBillingProvider implements BillingProvider {
   createCheckout(user: DemoUser) {
     const pending = this.checkoutRequests.get(user.id);
     if (pending) return pending;
+    const now = Date.now();
+    while (
+      this.checkoutRequestTimestamps[0] !== undefined &&
+      this.checkoutRequestTimestamps[0] <= now - CHECKOUT_REQUEST_WINDOW_MS
+    ) {
+      this.checkoutRequestTimestamps.shift();
+    }
+    if (this.checkoutRequestTimestamps.length >= CHECKOUT_REQUEST_LIMIT) {
+      const retryAfterSeconds = Math.max(1, Math.ceil(
+        (this.checkoutRequestTimestamps[0]! + CHECKOUT_REQUEST_WINDOW_MS - now) / 1000,
+      ));
+      return Promise.reject(new CheckoutRateLimitError(retryAfterSeconds));
+    }
+    this.checkoutRequestTimestamps.push(now);
     const request = this.createCheckoutOnce(user).finally(() => {
       if (this.checkoutRequests.get(user.id) === request) this.checkoutRequests.delete(user.id);
     });

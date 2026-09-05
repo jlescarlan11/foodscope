@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp, type AppDependencies } from '../src/app.js';
 import { DEMO_USER_ID, type Locale } from '../src/constants.js';
 import { ProductProviderRateLimitError } from '../src/open-food-facts.js';
-import { CheckoutUnavailableError } from '../src/errors.js';
+import { CheckoutRateLimitError, CheckoutUnavailableError } from '../src/errors.js';
 import type { DemoUser, RecentSearch, Repository } from '../src/types.js';
 
 const baseUser: DemoUser = {
@@ -390,6 +390,23 @@ describe('Foodscope API', () => {
     expect(response.body).toEqual({
       error: 'Checkout is unavailable for the current subscription state',
     });
+  });
+
+  it('forwards Checkout backpressure without logging provider failure', async () => {
+    const setup = harness();
+    vi.mocked(setup.dependencies.billing!.createCheckout)
+      .mockRejectedValueOnce(new CheckoutRateLimitError(37));
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    const response = await request(setup.app)
+      .post('/api/billing/checkout-session')
+      .set('origin', setup.dependencies.config.frontendUrl);
+
+    expect(response.status).toBe(429);
+    expect(response.headers['retry-after']).toBe('37');
+    expect(response.body).toEqual({ error: 'Too many Checkout attempts' });
+    expect(errorLog).not.toHaveBeenCalled();
+    errorLog.mockRestore();
   });
 
   it('logs a value-free signal when Checkout creation fails unexpectedly', async () => {

@@ -12,7 +12,7 @@ import {
   SUPPORTED_LOCALES,
 } from './constants.js';
 import { ProductProviderRateLimitError } from './open-food-facts.js';
-import { CheckoutUnavailableError } from './errors.js';
+import { CheckoutRateLimitError, CheckoutUnavailableError } from './errors.js';
 import type { BillingProvider, DemoUserState, Nutrition, ProductProvider, Repository } from './types.js';
 
 export type AppDependencies = {
@@ -279,6 +279,11 @@ export function createApp(deps: AppDependencies) {
       try {
         res.status(201).json(await deps.billing.createCheckout(user));
       } catch (error) {
+        if (error instanceof CheckoutRateLimitError) {
+          res.set('Retry-After', String(error.retryAfterSeconds));
+          res.status(429).json({ error: 'Too many Checkout attempts' });
+          return;
+        }
         if (error instanceof CheckoutUnavailableError) {
           res.status(409).json({ error: 'Checkout is unavailable for the current subscription state' });
           return;
