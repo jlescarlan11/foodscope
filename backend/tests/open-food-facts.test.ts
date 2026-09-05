@@ -178,6 +178,21 @@ describe('Open Food Facts normalization', () => {
     expect(cancel).toHaveBeenCalledOnce();
   });
 
+  it('rejects invalid UTF-8 instead of exposing replacement characters', async () => {
+    const prefix = Buffer.from('{"products":[{"code":"1","product_name":"');
+    const suffix = Buffer.from('"}]}');
+    const malformed = new Uint8Array(prefix.length + 2 + suffix.length);
+    malformed.set(prefix);
+    malformed.set([0xc3, 0x28], prefix.length);
+    malformed.set(suffix, prefix.length + 2);
+    const fetcher = vi.fn(async () => new Response(malformed, { status: 200 }));
+    const provider = new OpenFoodFactsProvider('FoodscopeTest/1.0', fetcher);
+
+    await expect(provider.search('milk', 'en')).rejects.toThrow(
+      'Open Food Facts returned malformed data',
+    );
+  });
+
   it('does not hold the request open for a long gateway Retry-After', async () => {
     const fetcher = vi.fn(async () => new Response('', { status: 502, headers: { 'retry-after': '120' } }));
     const provider = new OpenFoodFactsProvider('FoodscopeTest/1.0', fetcher);

@@ -90,7 +90,9 @@ async function readBoundedJson(response: Response): Promise<unknown> {
   }
 
   try {
-    return JSON.parse(Buffer.concat(chunks, totalBytes).toString('utf8')) as unknown;
+    const text = new TextDecoder('utf-8', { fatal: true })
+      .decode(Buffer.concat(chunks, totalBytes));
+    return JSON.parse(text) as unknown;
   } catch {
     throw new Error('Open Food Facts returned malformed data');
   }
