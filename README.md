@@ -131,6 +131,7 @@ npm test
 npm run typecheck
 npm run lint
 npm run build
+npm run test:coverage -w backend # optional local HTML coverage report
 ```
 
 GitHub Actions runs these checks on pull requests and `main`, cancels superseded runs, replays all
