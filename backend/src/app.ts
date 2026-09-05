@@ -50,6 +50,10 @@ export function createApp(deps: AppDependencies) {
         res.status(400).json({ error: 'Invalid webhook signature' });
         return;
       }
+      if (await deps.repository.isStripeEventProcessed(event.id)) {
+        res.json({ received: true });
+        return;
+      }
       const subscriptionEvent =
         event.type === 'customer.subscription.created' ||
         event.type === 'customer.subscription.updated' ||

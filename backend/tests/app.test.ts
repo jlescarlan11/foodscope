@@ -25,6 +25,7 @@ function harness(status = 'inactive') {
     setStripeCustomer: vi.fn(async (_userId: string, customerId: string) => { user = { ...user, stripeCustomerId: customerId }; }),
     getOrCreateCheckoutAttempt: vi.fn(async () => ({ id: 'attempt_test', expiresAt: new Date(), sessionUrl: null })),
     completeCheckoutAttempt: vi.fn(async () => undefined),
+    isStripeEventProcessed: vi.fn(async () => false),
     processStripeEvent: vi.fn(async (event: Stripe.Event, currentSubscription?: Stripe.Subscription) => {
       if (event.type === 'customer.subscription.updated') {
         user = { ...user, subscriptionStatus: currentSubscription!.status };
@@ -139,6 +140,21 @@ describe('Foodscope API', () => {
     expect(response.status).toBe(400);
     expect(setup.repository.processStripeEvent).not.toHaveBeenCalled();
     expect(setup.dependencies.billing!.retrieveSubscription).not.toHaveBeenCalled();
+  });
+
+  it('acknowledges a verified duplicate without another Stripe read', async () => {
+    const setup = harness();
+    vi.mocked(setup.repository.isStripeEventProcessed).mockResolvedValueOnce(true);
+
+    const response = await request(setup.app)
+      .post('/api/webhooks/stripe')
+      .set('stripe-signature', 'valid')
+      .set('content-type', 'application/json')
+      .send('{}');
+
+    expect(response.status).toBe(200);
+    expect(setup.dependencies.billing!.retrieveSubscription).not.toHaveBeenCalled();
+    expect(setup.repository.processStripeEvent).not.toHaveBeenCalled();
   });
 
   it('returns a retryable failure without processing when current Stripe state cannot be loaded', async () => {

@@ -51,6 +51,7 @@ export interface Repository {
     attemptId: string,
     session: { id: string; url: string; expiresAt: Date },
   ): Promise<void>;
+  isStripeEventProcessed(eventId: string): Promise<boolean>;
   processStripeEvent(event: Stripe.Event, currentSubscription?: Stripe.Subscription): Promise<void>;
 }
 

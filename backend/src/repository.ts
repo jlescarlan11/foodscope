@@ -124,6 +124,12 @@ export function createRepository(database: typeof prisma): Repository {
       });
       if (saved.count !== 1) throw new Error('Checkout attempt expired before it could be saved');
     },
+    async isStripeEventProcessed(eventId) {
+      return Boolean(await database.stripeWebhookEvent.findUnique({
+        where: { id: eventId },
+        select: { id: true },
+      }));
+    },
     async processStripeEvent(event, currentSubscription) {
       try {
         await database.$transaction(async (tx: Prisma.TransactionClient) => {
