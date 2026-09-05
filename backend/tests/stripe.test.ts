@@ -580,7 +580,10 @@ describe('Stripe Checkout creation', () => {
     async (status) => {
       const setup = harness(null, 'cus_existing');
       setup.subscriptionsList.mockResolvedValueOnce({
-        data: [{ status }],
+        data: [{
+          id: 'sub_existing', object: 'subscription', livemode: false,
+          customer: 'cus_existing', status,
+        }],
         has_more: false,
       });
 
@@ -601,7 +604,16 @@ describe('Stripe Checkout creation', () => {
   it('allows recovery after only terminal subscriptions', async () => {
     const setup = harness(null, 'cus_existing');
     setup.subscriptionsList.mockResolvedValueOnce({
-      data: [{ status: 'canceled' }, { status: 'incomplete_expired' }],
+      data: [
+        {
+          id: 'sub_canceled', object: 'subscription', livemode: false,
+          customer: 'cus_existing', status: 'canceled',
+        },
+        {
+          id: 'sub_expired', object: 'subscription', livemode: false,
+          customer: 'cus_existing', status: 'incomplete_expired',
+        },
+      ],
       has_more: false,
     });
 
@@ -618,6 +630,27 @@ describe('Stripe Checkout creation', () => {
     ['reports another page', { data: [], has_more: true }],
     ['omits subscription data', { has_more: false }],
     ['returns malformed subscription data', { data: [null], has_more: false }],
+    ['returns a non-Subscription terminal object', {
+      data: [{
+        id: 'sub_wrong_object', object: 'invoice', livemode: false,
+        customer: 'cus_existing', status: 'canceled',
+      }],
+      has_more: false,
+    }],
+    ['returns a terminal Subscription for another Customer', {
+      data: [{
+        id: 'sub_wrong_customer', object: 'subscription', livemode: false,
+        customer: 'cus_other', status: 'canceled',
+      }],
+      has_more: false,
+    }],
+    ['returns a live-mode terminal Subscription', {
+      data: [{
+        id: 'sub_live', object: 'subscription', livemode: true,
+        customer: 'cus_existing', status: 'canceled',
+      }],
+      has_more: false,
+    }],
   ])('does not create a Session when Stripe %s', async (_case, response) => {
     const setup = harness(null, 'cus_existing');
     setup.subscriptionsList.mockResolvedValueOnce(response);

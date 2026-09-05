@@ -59,15 +59,19 @@ function createdCustomerId(value: unknown, demoUserId: string) {
     : null;
 }
 
-function hasOnlyTerminalSubscriptions(value: unknown) {
+function hasOnlyTerminalSubscriptions(value: unknown, expectedCustomerId: string) {
   if (typeof value !== 'object' || value === null) return false;
   const page = value as Record<string, unknown>;
   return page.has_more === false &&
     Array.isArray(page.data) &&
     page.data.every((subscription) => {
       if (typeof subscription !== 'object' || subscription === null) return false;
-      const status = (subscription as Record<string, unknown>).status;
-      return typeof status === 'string' && TERMINAL_SUBSCRIPTION_STATUSES.has(status);
+      const item = subscription as Record<string, unknown>;
+      return isStripeOpaqueId(item.id) &&
+        item.object === 'subscription' &&
+        item.livemode === false &&
+        expandableId(item.customer) === expectedCustomerId &&
+        typeof item.status === 'string' && TERMINAL_SUBSCRIPTION_STATUSES.has(item.status);
     });
 }
 
@@ -180,7 +184,7 @@ export class StripeBillingProvider implements BillingProvider {
         status: 'all',
         limit: 100,
       });
-      if (!hasOnlyTerminalSubscriptions(subscriptions)) {
+      if (!hasOnlyTerminalSubscriptions(subscriptions, customerId)) {
         throw new CheckoutUnavailableError();
       }
     } else {
