@@ -10,6 +10,7 @@ export type AppConfig = {
 };
 
 const placeholderUserAgent = /(?:contact@example\.com|replace[_ -]?me|change[_ -]?me)/i;
+const identifiableUserAgent = /^\S+\/\S+\s+\([^()\s@]+@[^()\s@]+\.[^()\s@]+\)$/;
 
 function parsePort(value: string | undefined) {
   const port = Number(value ?? 4000);
@@ -61,7 +62,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
   if (
     !openFoodFactsUserAgent ||
     placeholderUserAgent.test(openFoodFactsUserAgent) ||
-    !/^\S+\/\S+\s+\(.+\)$/.test(openFoodFactsUserAgent)
+    !identifiableUserAgent.test(openFoodFactsUserAgent)
   ) {
     throw new Error(
       'OPEN_FOOD_FACTS_USER_AGENT must identify the application, version, and a real contact',

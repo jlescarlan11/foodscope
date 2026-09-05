@@ -15,6 +15,10 @@ describe('runtime configuration', () => {
     expect(() => loadConfig({
       OPEN_FOOD_FACTS_USER_AGENT: 'Foodscope',
     })).toThrow('OPEN_FOOD_FACTS_USER_AGENT');
+    expect(() => loadConfig({
+      DATABASE_URL: validEnvironment.DATABASE_URL,
+      OPEN_FOOD_FACTS_USER_AGENT: 'Foodscope/1.0 (not-a-contact)',
+    })).toThrow('OPEN_FOOD_FACTS_USER_AGENT');
   });
 
   it('accepts an application, version, and non-placeholder contact', () => {
