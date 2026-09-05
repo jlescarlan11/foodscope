@@ -801,6 +801,27 @@ describe('Foodscope API', () => {
     expect(setup.dependencies.billing!.retrieveSubscription).not.toHaveBeenCalled();
   });
 
+  it('durably processes a verified test-mode Customer deletion without a Stripe read', async () => {
+    const setup = harness();
+    const event = {
+      id: 'evt_customer_deleted',
+      type: 'customer.deleted',
+      livemode: false,
+      data: { object: { id: 'cus_test', deleted: true } },
+    } as unknown as Stripe.Event;
+    vi.mocked(setup.dependencies.billing!.constructEvent).mockReturnValueOnce(event);
+
+    const response = await request(setup.app)
+      .post('/api/webhooks/stripe')
+      .set('stripe-signature', 'valid')
+      .set('content-type', 'application/json')
+      .send('{}');
+
+    expect(response.status).toBe(200);
+    expect(setup.repository.processStripeEvent).toHaveBeenCalledWith(event, undefined);
+    expect(setup.dependencies.billing!.retrieveSubscription).not.toHaveBeenCalled();
+  });
+
   it.each([true, undefined])(
     'acknowledges a relevant event with unsupported livemode %p without durable work',
     async (livemode) => {

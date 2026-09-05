@@ -598,9 +598,36 @@ describe('Stripe webhook repository', () => {
     expect(tx.user.update).not.toHaveBeenCalled();
   });
 
+  it('durably revokes entitlement for the mapped deleted Customer', async () => {
+    const updateMany = vi.fn(async () => ({ count: 1 }));
+    const tx = {
+      stripeWebhookEvent: eventMarker(),
+      user: { updateMany },
+    };
+    const database = {
+      $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<void>) => callback(tx)),
+    } as unknown as typeof prisma;
+    const deleted = {
+      id: 'evt_customer_deleted',
+      type: 'customer.deleted',
+      data: { object: { id: 'cus_demo', deleted: true } },
+    } as unknown as Stripe.Event;
+
+    await createBillingRepository(database).processStripeEvent(deleted);
+
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { id: DEMO_USER_ID, stripeCustomerId: 'cus_demo' },
+      data: {
+        subscriptionStatus: 'canceled',
+        subscriptionCurrentPeriodEnd: null,
+      },
+    });
+  });
+
   it.each([
     'customer.subscription.updated',
     'checkout.session.completed',
+    'customer.deleted',
   ] as const)('durably ignores a malformed %s event without Stripe or account work', async (type) => {
     const retrieveSubscription = vi.fn(async () => subscription('active'));
     const tx = {
@@ -629,6 +656,7 @@ describe('Stripe webhook repository', () => {
     expect(retrieveSubscription).not.toHaveBeenCalled();
     expect(tx.user.findUnique).not.toHaveBeenCalled();
     expect(tx.user.update).not.toHaveBeenCalled();
+    expect(tx.user.updateMany).not.toHaveBeenCalled();
   });
 
   it('skips duplicate events atomically without Stripe work', async () => {

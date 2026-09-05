@@ -413,4 +413,19 @@ integration('Repository with MySQL', () => {
         stripeCheckoutAttemptId: null,
       });
   });
+
+  it('revokes stored entitlement when the mapped Customer is deleted', async () => {
+    await subject.processStripeEvent({
+      id: 'evt_customer_deleted',
+      type: 'customer.deleted',
+      data: { object: { id: 'cus_integration', deleted: true } },
+    } as unknown as Stripe.Event);
+
+    await expect(database.user.findUniqueOrThrow({ where: { id: DEMO_USER_ID } }))
+      .resolves.toMatchObject({
+        stripeCustomerId: 'cus_integration',
+        subscriptionStatus: 'canceled',
+        subscriptionCurrentPeriodEnd: null,
+      });
+  });
 });

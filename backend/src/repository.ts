@@ -302,6 +302,24 @@ export function createRepository(database: typeof prisma, stripePriceId?: string
             }
           }
 
+          if (event.type === 'customer.deleted') {
+            const customer = eventObject(event);
+            const customerId = isRecord(customer) && customer.deleted === true &&
+              typeof customer.id === 'string' && customer.id.length > 0 &&
+              Array.from(customer.id).length <= 255
+              ? customer.id
+              : null;
+            if (customerId) {
+              await tx.user.updateMany({
+                where: { id: DEMO_USER_ID, stripeCustomerId: customerId },
+                data: {
+                  subscriptionStatus: 'canceled',
+                  subscriptionCurrentPeriodEnd: null,
+                },
+              });
+            }
+          }
+
           if (
             event.type === 'customer.subscription.created' ||
             event.type === 'customer.subscription.updated' ||

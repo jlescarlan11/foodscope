@@ -30,6 +30,7 @@ const searchSchema = z.object({
 
 const relevantStripeEventTypes = new Set<Stripe.Event.Type>([
   'checkout.session.completed',
+  'customer.deleted',
   'customer.subscription.created',
   'customer.subscription.updated',
   'customer.subscription.deleted',
