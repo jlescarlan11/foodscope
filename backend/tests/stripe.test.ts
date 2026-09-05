@@ -28,10 +28,24 @@ function harness(sessionUrl: string | null = null) {
   const repository = {
     getOrCreateCheckoutAttempt: vi.fn(async () => attempt),
     setStripeCustomer: vi.fn(async () => undefined),
+    replaceStripeCustomer: vi.fn(async (
+      _userId: string,
+      _expectedCustomerId: string,
+      replacementCustomerId: string,
+    ) =>
+      replacementCustomerId),
     completeCheckoutAttempt: vi.fn(async () => undefined),
     releaseCheckoutAttempt: vi.fn(async () => undefined),
   } as unknown as Repository;
-  const customersCreate = vi.fn(async () => ({ id: 'cus_test' }));
+  const customersCreate = vi.fn(async (
+    params?: unknown,
+    options?: { idempotencyKey?: string },
+  ) => {
+    void params;
+    void options;
+    return { id: 'cus_test' };
+  });
+  const customersRetrieve = vi.fn(async (id: string) => ({ id, deleted: false }));
   const sessionsCreate = vi.fn(async () => ({
     id: 'cs_test',
     url: 'https://checkout.stripe.test/session',
@@ -49,7 +63,7 @@ function harness(sessionUrl: string | null = null) {
     recurring: { interval: 'month', interval_count: 1 },
   }));
   const stripe = {
-    customers: { create: customersCreate },
+    customers: { create: customersCreate, retrieve: customersRetrieve },
     checkout: { sessions: { create: sessionsCreate } },
     subscriptions: { list: subscriptionsList },
     prices: { retrieve: pricesRetrieve },
@@ -66,6 +80,7 @@ function harness(sessionUrl: string | null = null) {
     provider,
     repository,
     customersCreate,
+    customersRetrieve,
     sessionsCreate,
     subscriptionsList,
     pricesRetrieve,
@@ -456,6 +471,73 @@ describe('Stripe Checkout creation', () => {
       stripeCustomerId: 'cus_existing',
     })).resolves.toEqual({ url: 'https://checkout.stripe.test/session' });
     expect(setup.customersCreate).not.toHaveBeenCalled();
+    expect(setup.sessionsCreate).toHaveBeenCalledOnce();
+  });
+
+  it('replaces a deleted stored Customer before creating Checkout', async () => {
+    const setup = harness();
+    setup.customersRetrieve.mockResolvedValueOnce({ id: 'cus_deleted', deleted: true });
+
+    await expect(setup.provider.createCheckout({
+      ...user,
+      stripeCustomerId: 'cus_deleted',
+    })).resolves.toEqual({ url: 'https://checkout.stripe.test/session' });
+
+    expect(setup.customersRetrieve).toHaveBeenCalledWith('cus_deleted');
+    expect(setup.customersCreate).toHaveBeenCalledWith(expect.anything(), {
+      idempotencyKey: expect.stringMatching(/^foodscope-demo-customer-replacement-[a-f0-9]{64}$/),
+    });
+    expect(setup.repository.replaceStripeCustomer).toHaveBeenCalledWith(
+      user.id,
+      'cus_deleted',
+      'cus_test',
+    );
+    expect(setup.subscriptionsList).toHaveBeenCalledWith({
+      customer: 'cus_test',
+      status: 'all',
+      limit: 100,
+    });
+    expect(setup.sessionsCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ customer: 'cus_test' }),
+      expect.anything(),
+    );
+  });
+
+  it('does not create resources when the stored Customer read fails', async () => {
+    const setup = harness();
+    setup.customersRetrieve.mockRejectedValueOnce(new Error('temporary Customer read failure'));
+
+    await expect(setup.provider.createCheckout({
+      ...user,
+      stripeCustomerId: 'cus_existing',
+    })).rejects.toThrow('temporary Customer read failure');
+
+    expect(setup.customersCreate).not.toHaveBeenCalled();
+    expect(setup.subscriptionsList).not.toHaveBeenCalled();
+    expect(setup.sessionsCreate).not.toHaveBeenCalled();
+    expect(setup.repository.replaceStripeCustomer).not.toHaveBeenCalled();
+  });
+
+  it('retries a deleted-Customer replacement without duplicating the Customer', async () => {
+    const setup = harness();
+    setup.customersRetrieve.mockResolvedValue({ id: 'cus_deleted', deleted: true });
+    vi.mocked(setup.repository.replaceStripeCustomer)
+      .mockRejectedValueOnce(new Error('temporary database failure'))
+      .mockResolvedValueOnce('cus_test');
+    const checkoutUser = { ...user, stripeCustomerId: 'cus_deleted' };
+
+    await expect(setup.provider.createCheckout(checkoutUser)).rejects.toThrow(
+      'temporary database failure',
+    );
+    expect(setup.sessionsCreate).not.toHaveBeenCalled();
+
+    await expect(setup.provider.createCheckout(checkoutUser)).resolves.toEqual({
+      url: 'https://checkout.stripe.test/session',
+    });
+    expect(setup.customersCreate).toHaveBeenCalledTimes(2);
+    const idempotencyKeys = setup.customersCreate.mock.calls.map((call) => call[1]?.idempotencyKey);
+    expect(idempotencyKeys[0]).toEqual(idempotencyKeys[1]);
+    expect(setup.repository.replaceStripeCustomer).toHaveBeenCalledTimes(2);
     expect(setup.sessionsCreate).toHaveBeenCalledOnce();
   });
 });

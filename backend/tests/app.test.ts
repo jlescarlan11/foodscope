@@ -31,6 +31,10 @@ function harness(status = 'inactive') {
     }),
     getRecentSearches: vi.fn(async (_userId: string, limit: number) => searches.slice(0, limit)),
     setStripeCustomer: vi.fn(async (_userId: string, customerId: string) => { user = { ...user, stripeCustomerId: customerId }; }),
+    replaceStripeCustomer: vi.fn(async (_userId: string, _expectedCustomerId: string, customerId: string) => {
+      user = { ...user, stripeCustomerId: customerId };
+      return customerId;
+    }),
     getOrCreateCheckoutAttempt: vi.fn(async () => ({
       id: 'attempt_test', expiresAt: new Date(), sessionUrl: null, priceId: 'price_test',
     })),

@@ -133,6 +133,20 @@ export function createRepository(database: typeof prisma, stripePriceId?: string
     async setStripeCustomer(userId, customerId) {
       await database.user.update({ where: { id: userId }, data: { stripeCustomerId: customerId } });
     },
+    async replaceStripeCustomer(userId, expectedCustomerId, replacementCustomerId) {
+      const replaced = await database.user.updateMany({
+        where: { id: userId, stripeCustomerId: expectedCustomerId },
+        data: { stripeCustomerId: replacementCustomerId },
+      });
+      if (replaced.count === 1) return replacementCustomerId;
+
+      const winner = await database.user.findUnique({
+        where: { id: userId },
+        select: { stripeCustomerId: true },
+      });
+      if (winner?.stripeCustomerId === replacementCustomerId) return replacementCustomerId;
+      throw new CheckoutUnavailableError();
+    },
     async getOrCreateCheckoutAttempt(userId) {
       const existing = await database.user.findUniqueOrThrow({
         where: { id: userId },

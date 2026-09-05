@@ -115,6 +115,52 @@ describe('Stripe webhook repository', () => {
     });
   });
 
+  it('replaces only the expected stored Stripe Customer', async () => {
+    const updateMany = vi.fn(async () => ({ count: 1 }));
+    const database = { user: { updateMany } } as unknown as typeof prisma;
+
+    await expect(createRepository(database).replaceStripeCustomer(
+      DEMO_USER_ID,
+      'cus_deleted',
+      'cus_replacement',
+    )).resolves.toBe('cus_replacement');
+
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { id: DEMO_USER_ID, stripeCustomerId: 'cus_deleted' },
+      data: { stripeCustomerId: 'cus_replacement' },
+    });
+  });
+
+  it('reuses the same replacement Customer after a concurrent compare-and-set loss', async () => {
+    const database = {
+      user: {
+        updateMany: vi.fn(async () => ({ count: 0 })),
+        findUnique: vi.fn(async () => ({ stripeCustomerId: 'cus_replacement' })),
+      },
+    } as unknown as typeof prisma;
+
+    await expect(createRepository(database).replaceStripeCustomer(
+      DEMO_USER_ID,
+      'cus_deleted',
+      'cus_replacement',
+    )).resolves.toBe('cus_replacement');
+  });
+
+  it('does not overwrite a different concurrently replaced Stripe Customer', async () => {
+    const database = {
+      user: {
+        updateMany: vi.fn(async () => ({ count: 0 })),
+        findUnique: vi.fn(async () => ({ stripeCustomerId: 'cus_other' })),
+      },
+    } as unknown as typeof prisma;
+
+    await expect(createRepository(database).replaceStripeCustomer(
+      DEMO_USER_ID,
+      'cus_deleted',
+      'cus_replacement',
+    )).rejects.toBeInstanceOf(CheckoutUnavailableError);
+  });
+
   it.each([null, 'price_previous'])(
     'blocks a future Checkout attempt without the configured Price binding (%s)',
     async (stripeCheckoutPriceId) => {

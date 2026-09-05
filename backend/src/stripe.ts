@@ -23,6 +23,11 @@ function integrationIdentifier(attemptId: string) {
   return `foodscope_${Array.from(digest.subarray(0, 8), (byte) => alphabet[byte % alphabet.length]).join('')}`;
 }
 
+function replacementCustomerIdempotencyKey(customerId: string) {
+  const digest = createHash('sha256').update(customerId).digest('hex');
+  return `foodscope-demo-customer-replacement-${digest}`;
+}
+
 function safeCheckoutUrl(value: string | null) {
   if (!value) return null;
   try {
@@ -112,6 +117,18 @@ export class StripeBillingProvider implements BillingProvider {
 
     let customerId = user.stripeCustomerId;
     if (customerId) {
+      const customer = await this.stripe.customers.retrieve(customerId);
+      if ('deleted' in customer && customer.deleted === true) {
+        const replacement = await this.stripe.customers.create({
+          email: user.email,
+          metadata: { demoUserId: user.id },
+        }, { idempotencyKey: replacementCustomerIdempotencyKey(customerId) });
+        customerId = await this.repository.replaceStripeCustomer(
+          user.id,
+          customerId,
+          replacement.id,
+        );
+      }
       const subscriptions = await this.stripe.subscriptions.list({
         customer: customerId,
         status: 'all',

@@ -47,6 +47,11 @@ export interface Repository {
   saveSearch(userId: string, requestId: string, query: string, locale: Locale): Promise<void>;
   getRecentSearches(userId: string, limit: number): Promise<RecentSearch[]>;
   setStripeCustomer(userId: string, customerId: string): Promise<void>;
+  replaceStripeCustomer(
+    userId: string,
+    expectedCustomerId: string,
+    replacementCustomerId: string,
+  ): Promise<string>;
   getOrCreateCheckoutAttempt(userId: string): Promise<CheckoutAttempt>;
   completeCheckoutAttempt(
     userId: string,

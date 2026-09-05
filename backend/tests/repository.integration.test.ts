@@ -152,6 +152,17 @@ integration('Repository with MySQL', () => {
     await subject.setStripeCustomer(DEMO_USER_ID, 'cus_integration');
   });
 
+  it('converges concurrent replacement of the same Stripe Customer', async () => {
+    await expect(Promise.all([
+      subject.replaceStripeCustomer(DEMO_USER_ID, 'cus_integration', 'cus_replacement'),
+      subject.replaceStripeCustomer(DEMO_USER_ID, 'cus_integration', 'cus_replacement'),
+    ])).resolves.toEqual(['cus_replacement', 'cus_replacement']);
+    await expect(database.user.findUniqueOrThrow({ where: { id: DEMO_USER_ID } }))
+      .resolves.toMatchObject({ stripeCustomerId: 'cus_replacement' });
+
+    await subject.setStripeCustomer(DEMO_USER_ID, 'cus_integration');
+  });
+
   it('cannot restore stale access when events arrive out of order', async () => {
     const current = subscription('unpaid');
 
