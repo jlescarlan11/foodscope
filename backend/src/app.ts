@@ -173,6 +173,7 @@ export function createApp(deps: AppDependencies) {
         res.status(502).json({ error: 'Product search is temporarily unavailable' });
         return;
       }
+      if (controller.signal.aborted) return;
 
       const publicResults = results.map((product) => ({
         product,
@@ -180,6 +181,7 @@ export function createApp(deps: AppDependencies) {
       }));
       const hasNutrition = publicResults.some(({ nutrition }) => nutrition !== undefined);
       const currentUser = hasNutrition ? await deps.repository.getDemoUser() : user;
+      if (controller.signal.aborted) return;
       const unlocked = currentUser ? hasNutritionAccess(
         currentUser.subscriptionStatus,
         currentUser.subscriptionCurrentPeriodEnd,

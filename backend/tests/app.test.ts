@@ -154,6 +154,61 @@ describe('Foodscope API', () => {
     }
   });
 
+  it('skips history when the response closes during the entitlement recheck', async () => {
+    const setup = harness('active');
+    let providerSignal: AbortSignal | undefined;
+    vi.mocked(setup.dependencies.products.search).mockImplementation(async (_query, _locale, signal) => {
+      providerSignal = signal;
+      return [{
+        id: 'cancelled', name: 'Cancelled', brand: null, image: null,
+        nutrition: { fat: { value: 1, unit: 'g' } },
+      }];
+    });
+    let userReads = 0;
+    let recheckStarted: (() => void) | undefined;
+    let releaseRecheck: (() => void) | undefined;
+    const recheck = new Promise<void>((resolve) => { recheckStarted = resolve; });
+    const release = new Promise<void>((resolve) => { releaseRecheck = resolve; });
+    vi.mocked(setup.repository.getDemoUser).mockImplementation(async () => {
+      userReads += 1;
+      if (userReads === 2) {
+        recheckStarted?.();
+        await release;
+      }
+      return { ...baseUser, subscriptionStatus: 'active', subscriptionCurrentPeriodEnd: new Date('2100-01-01') };
+    });
+    const server = setup.app.listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => server.once('listening', resolve));
+
+    try {
+      const address = server.address();
+      if (!address || typeof address === 'string') throw new Error('Expected a TCP listener');
+      const controller = new AbortController();
+      const response = fetch(`http://127.0.0.1:${address.port}/api/products/search`, {
+        method: 'POST',
+        headers: { origin: 'http://localhost:3000', 'content-type': 'application/json' },
+        body: JSON.stringify({
+          requestId: '00000000-0000-4000-8000-000000000002',
+          q: 'milk',
+          lang: 'en',
+        }),
+        signal: controller.signal,
+      }).catch(() => undefined);
+
+      await recheck;
+      controller.abort();
+      await response;
+      await vi.waitFor(() => expect(providerSignal?.aborted).toBe(true));
+      releaseRecheck?.();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(userReads).toBe(2);
+      expect(setup.repository.saveSearch).not.toHaveBeenCalled();
+    } finally {
+      releaseRecheck?.();
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+  });
+
   it('classifies malformed and oversized JSON as non-retryable client errors', async () => {
     const setup = harness();
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
