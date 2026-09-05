@@ -154,30 +154,33 @@ describe('Stripe Checkout creation', () => {
     expect(setup.repository.completeCheckoutAttempt).not.toHaveBeenCalled();
   });
 
-  it('does not create another Session when the Customer has a non-terminal subscription', async () => {
-    const setup = harness();
-    setup.subscriptionsList.mockResolvedValueOnce({
-      data: [{ status: 'active' }],
-      has_more: false,
-    });
+  it.each(['active', 'unpaid'] as const)(
+    'does not create another Session when the Customer has an %s subscription',
+    async (status) => {
+      const setup = harness();
+      setup.subscriptionsList.mockResolvedValueOnce({
+        data: [{ status }],
+        has_more: false,
+      });
 
-    await expect(setup.provider.createCheckout({
-      ...user,
-      stripeCustomerId: 'cus_existing',
-    })).rejects.toThrow('already has a non-terminal subscription');
-    expect(setup.subscriptionsList).toHaveBeenCalledWith({
-      customer: 'cus_existing',
-      status: 'all',
-      limit: 100,
-    });
-    expect(setup.sessionsCreate).not.toHaveBeenCalled();
-    expect(setup.repository.completeCheckoutAttempt).not.toHaveBeenCalled();
-  });
+      await expect(setup.provider.createCheckout({
+        ...user,
+        stripeCustomerId: 'cus_existing',
+      })).rejects.toThrow('already has a non-terminal subscription');
+      expect(setup.subscriptionsList).toHaveBeenCalledWith({
+        customer: 'cus_existing',
+        status: 'all',
+        limit: 100,
+      });
+      expect(setup.sessionsCreate).not.toHaveBeenCalled();
+      expect(setup.repository.completeCheckoutAttempt).not.toHaveBeenCalled();
+    },
+  );
 
   it('allows recovery after only terminal subscriptions', async () => {
     const setup = harness();
     setup.subscriptionsList.mockResolvedValueOnce({
-      data: [{ status: 'canceled' }, { status: 'incomplete_expired' }, { status: 'unpaid' }],
+      data: [{ status: 'canceled' }, { status: 'incomplete_expired' }],
       has_more: false,
     });
 

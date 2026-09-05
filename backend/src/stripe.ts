@@ -7,7 +7,6 @@ const STRIPE_REQUEST_TIMEOUT_MS = 5_000;
 const TERMINAL_SUBSCRIPTION_STATUSES = new Set<Stripe.Subscription.Status>([
   'canceled',
   'incomplete_expired',
-  'unpaid',
 ]);
 
 function integrationIdentifier(attemptId: string) {
