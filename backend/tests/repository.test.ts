@@ -24,6 +24,34 @@ function subscriptionEvent(id = 'evt_stale') {
 }
 
 describe('Stripe webhook repository', () => {
+  it('reserves a stable one-hour Checkout window', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2030-01-01T00:00:00.000Z'));
+    const updateMany = vi.fn(async () => ({ count: 1 }));
+    const database = {
+      user: {
+        findUniqueOrThrow: vi.fn(async () => ({
+          subscriptionStatus: 'inactive',
+          stripeCheckoutAttemptId: null,
+          stripeCheckoutSessionUrl: null,
+          stripeCheckoutExpiresAt: null,
+        })),
+        updateMany,
+      },
+    } as unknown as typeof prisma;
+
+    try {
+      const attempt = await createRepository(database).getOrCreateCheckoutAttempt(DEMO_USER_ID);
+
+      expect(attempt.expiresAt).toEqual(new Date('2030-01-01T01:00:00.000Z'));
+      expect(updateMany).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ stripeCheckoutExpiresAt: attempt.expiresAt }),
+      }));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('uses the Checkout eligibility allowlist in the atomic attempt reservation', async () => {
     const updateMany = vi.fn(async () => ({ count: 0 }));
     const database = {

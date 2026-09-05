@@ -27,7 +27,7 @@ function subscriptionPeriodEnd(subscription: Stripe.Subscription) {
   return Number.isFinite(end.getTime()) ? end : null;
 }
 
-const CHECKOUT_ATTEMPT_MS = 31 * 60 * 1000;
+const CHECKOUT_ATTEMPT_MS = 60 * 60 * 1000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
