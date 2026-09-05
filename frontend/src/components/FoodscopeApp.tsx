@@ -27,9 +27,11 @@ export const REQUEST_TIMEOUT_MS = {
 
 const visibleSearchCharacter = /[\p{L}\p{N}\p{P}\p{S}]/u;
 const controlCharacter = /\p{Cc}/u;
+const MAX_SEARCH_QUERY_CHARACTERS = 120;
 
 function isUsableSearchQuery(value: string) {
-  return visibleSearchCharacter.test(value) && !controlCharacter.test(value);
+  return Array.from(value).length <= MAX_SEARCH_QUERY_CHARACTERS &&
+    visibleSearchCharacter.test(value) && !controlCharacter.test(value);
 }
 
 class ApiResponseError extends Error {
@@ -136,7 +138,6 @@ function isRecentSearchResponse(value: unknown): value is { searches: RecentSear
     const search = value as Record<string, unknown>;
     return typeof search.query === 'string' && Boolean(search.query.trim()) &&
       isUsableSearchQuery(search.query) &&
-      Array.from(search.query).length <= 120 &&
       typeof search.locale === 'string' && locales.includes(search.locale as Locale);
   });
 }
@@ -398,7 +399,7 @@ export function FoodscopeApp() {
           <form onSubmit={submit} className="search-form">
             <label className="sr-only" htmlFor="product-search">{messages.searchLabel}</label>
             <span aria-hidden="true" className="search-symbol">⌕</span>
-            <input id="product-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={messages.searchPlaceholder} maxLength={120} />
+            <input id="product-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={messages.searchPlaceholder} maxLength={MAX_SEARCH_QUERY_CHARACTERS * 2} />
             <button disabled={loading || !query.trim() || !isUsableSearchQuery(query)}>{loading ? messages.searching : messages.search}<span aria-hidden="true">→</span></button>
           </form>
           {recent.length > 0 && <div className="recent"><span>{messages.recent}</span><div>{recent.map((item, index) => <button key={`${item.locale}:${item.query}:${index}`} onClick={() => { const recentLocale = item.locale as Locale; setLocale(recentLocale); setQuery(item.query); void runSearch(item.query, recentLocale); }}>{item.query}<span className="recent-locale">{localeNames[item.locale as Locale]}</span></button>)}</div></div>}
