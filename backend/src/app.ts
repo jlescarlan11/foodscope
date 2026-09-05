@@ -71,10 +71,8 @@ export function createApp(deps: AppDependencies) {
 
   app.post(
     '/api/webhooks/stripe',
-    express.raw({ type: 'application/json' }),
-    asyncRoute(async (req, res) => {
-      const signature = req.header('stripe-signature');
-      if (!signature || !Buffer.isBuffer(req.body)) {
+    (req, res, next) => {
+      if (!req.header('stripe-signature')) {
         res.status(400).json({ error: 'Invalid webhook request' });
         return;
       }
@@ -82,9 +80,18 @@ export function createApp(deps: AppDependencies) {
         res.status(503).json({ error: 'Stripe is not configured' });
         return;
       }
+      next();
+    },
+    express.raw({ type: 'application/json' }),
+    asyncRoute(async (req, res) => {
+      const signature = req.header('stripe-signature');
+      if (!signature || !Buffer.isBuffer(req.body)) {
+        res.status(400).json({ error: 'Invalid webhook request' });
+        return;
+      }
       let event;
       try {
-        event = deps.billing.constructEvent(req.body, signature);
+        event = deps.billing!.constructEvent(req.body, signature);
       } catch {
         res.status(400).json({ error: 'Invalid webhook signature' });
         return;

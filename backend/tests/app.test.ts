@@ -635,6 +635,20 @@ describe('Foodscope API', () => {
     expect(setup.dependencies.billing!.retrieveSubscription).not.toHaveBeenCalled();
   });
 
+  it('rejects an unsigned webhook before buffering its oversized body', async () => {
+    const setup = harness();
+
+    const response = await request(setup.app)
+      .post('/api/webhooks/stripe')
+      .set('content-type', 'application/json')
+      .send('x'.repeat(101 * 1024));
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ error: 'Invalid webhook request' });
+    expect(setup.dependencies.billing!.constructEvent).not.toHaveBeenCalled();
+    expect(setup.repository.processStripeEvent).not.toHaveBeenCalled();
+  });
+
   it('acknowledges a verified duplicate without another Stripe read', async () => {
     const setup = harness();
     vi.mocked(setup.repository.isStripeEventProcessed).mockResolvedValueOnce(true);
