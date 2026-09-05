@@ -47,7 +47,17 @@ function harness(sessionUrl: string | null = null, customerId: string | null = n
     void options;
     return { id: 'cus_test' };
   });
-  const customersRetrieve = vi.fn(async (id: string) => ({ id, deleted: false }));
+  const customersRetrieve = vi.fn(async (id: string): Promise<{
+    id: string;
+    deleted: boolean;
+    livemode?: boolean;
+    metadata?: Record<string, unknown>;
+  }> => ({
+    id,
+    deleted: false,
+    livemode: false,
+    metadata: { demoUserId: user.id },
+  }));
   const sessionsCreate = vi.fn(async () => ({
     id: 'cs_test',
     url: 'https://checkout.stripe.test/session',
@@ -288,6 +298,25 @@ describe('Stripe Checkout creation', () => {
     expect(setup.sessionsCreate).not.toHaveBeenCalled();
   });
 
+  it.each([
+    { livemode: false, metadata: {} },
+    { livemode: false, metadata: { demoUserId: 'unexpected-user' } },
+    { livemode: true, metadata: { demoUserId: user.id } },
+  ])('does not expose a stored Session for a misattributed Customer %#', async (customer) => {
+    const setup = harness('https://checkout.stripe.test/misattributed', 'cus_other');
+    setup.customersRetrieve.mockResolvedValueOnce({
+      id: 'cus_other',
+      deleted: false,
+      ...customer,
+    });
+
+    await expect(setup.provider.createCheckout(user)).rejects.toBeInstanceOf(
+      CheckoutUnavailableError,
+    );
+    expect(setup.subscriptionsList).not.toHaveBeenCalled();
+    expect(setup.sessionsCreate).not.toHaveBeenCalled();
+  });
+
   it('never returns a stored Session created for a different configured Price', async () => {
     const setup = harness('https://checkout.stripe.test/old-price');
     setup.attempt.priceId = 'price_previous';
@@ -312,7 +341,9 @@ describe('Stripe Checkout creation', () => {
       .mockResolvedValueOnce(setup.attempt)
       .mockResolvedValueOnce(replacementAttempt);
     setup.customersRetrieve.mockImplementation(async (id) =>
-      id === 'cus_deleted' ? { id, deleted: true } : { id, deleted: false });
+      id === 'cus_deleted'
+        ? { id, deleted: true }
+        : { id, deleted: false, livemode: false, metadata: { demoUserId: user.id } });
 
     await expect(setup.provider.createCheckout({
       ...user,
@@ -586,7 +617,9 @@ describe('Stripe Checkout creation', () => {
       .mockResolvedValueOnce(setup.attempt)
       .mockResolvedValueOnce(replacementAttempt);
     setup.customersRetrieve.mockImplementation(async (id) =>
-      id === 'cus_deleted' ? { id, deleted: true } : { id, deleted: false });
+      id === 'cus_deleted'
+        ? { id, deleted: true }
+        : { id, deleted: false, livemode: false, metadata: { demoUserId: user.id } });
     vi.mocked(setup.repository.replaceStripeCustomer)
       .mockRejectedValueOnce(new Error('temporary database failure'))
       .mockResolvedValueOnce('cus_test');

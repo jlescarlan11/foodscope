@@ -136,6 +136,9 @@ export class StripeBillingProvider implements BillingProvider {
           false,
         );
       }
+      if (customer.livemode !== false || customer.metadata?.demoUserId !== user.id) {
+        throw new CheckoutUnavailableError();
+      }
       if (storedSessionUrl) return { url: storedSessionUrl };
       const subscriptions = await this.stripe.subscriptions.list({
         customer: customerId,
