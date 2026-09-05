@@ -63,4 +63,30 @@ integration('Stripe webhook repository with MySQL', () => {
     await expect(database.user.findUniqueOrThrow({ where: { id: DEMO_USER_ID } }))
       .resolves.toMatchObject({ subscriptionStatus: 'unpaid' });
   });
+
+  it('reserves and reuses one Checkout attempt under concurrency', async () => {
+    const [first, second] = await Promise.all([
+      subject.getOrCreateCheckoutAttempt(DEMO_USER_ID),
+      subject.getOrCreateCheckoutAttempt(DEMO_USER_ID),
+    ]);
+    expect(second.id).toBe(first.id);
+
+    await subject.completeCheckoutAttempt(DEMO_USER_ID, first.id, {
+      id: 'cs_test_integration',
+      url: 'https://checkout.stripe.test/integration',
+      expiresAt: first.expiresAt,
+    });
+
+    await expect(subject.getOrCreateCheckoutAttempt(DEMO_USER_ID)).resolves.toEqual({
+      ...first,
+      sessionUrl: 'https://checkout.stripe.test/integration',
+    });
+
+    await database.user.update({
+      where: { id: DEMO_USER_ID },
+      data: { subscriptionStatus: 'active' },
+    });
+    await expect(subject.getOrCreateCheckoutAttempt(DEMO_USER_ID))
+      .rejects.toThrow('already has nutrition access');
+  });
 });

@@ -12,6 +12,10 @@ model User {
   email                         String         @unique @db.VarChar(191)
   stripeCustomerId              String?        @unique @db.VarChar(191)
   stripeSubscriptionId          String?        @unique @db.VarChar(191)
+  stripeCheckoutAttemptId       String?        @db.VarChar(36)
+  stripeCheckoutSessionId       String?        @unique @db.VarChar(191)
+  stripeCheckoutSessionUrl      String?        @db.Text
+  stripeCheckoutExpiresAt       DateTime?
   subscriptionStatus            String         @default("inactive") @db.VarChar(32)
   subscriptionCurrentPeriodEnd  DateTime?
   createdAt                     DateTime       @default(now())

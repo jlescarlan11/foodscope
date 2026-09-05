@@ -26,9 +26,15 @@ export type DemoUser = {
   email: string;
   stripeCustomerId: string | null;
   stripeSubscriptionId: string | null;
+  stripeCheckoutAttemptId: string | null;
+  stripeCheckoutSessionId: string | null;
+  stripeCheckoutSessionUrl: string | null;
+  stripeCheckoutExpiresAt: Date | null;
   subscriptionStatus: string;
   subscriptionCurrentPeriodEnd: Date | null;
 };
+
+export type CheckoutAttempt = { id: string; expiresAt: Date; sessionUrl: string | null };
 
 export type RecentSearch = { id: number; query: string; locale: string; createdAt: Date };
 
@@ -37,6 +43,12 @@ export interface Repository {
   saveSearch(userId: string, query: string, locale: Locale): Promise<void>;
   getRecentSearches(userId: string, limit: number): Promise<RecentSearch[]>;
   setStripeCustomer(userId: string, customerId: string): Promise<void>;
+  getOrCreateCheckoutAttempt(userId: string): Promise<CheckoutAttempt>;
+  completeCheckoutAttempt(
+    userId: string,
+    attemptId: string,
+    session: { id: string; url: string; expiresAt: Date },
+  ): Promise<void>;
   processStripeEvent(event: Stripe.Event, currentSubscription?: Stripe.Subscription): Promise<void>;
 }
 

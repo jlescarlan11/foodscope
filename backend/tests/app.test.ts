@@ -7,7 +7,9 @@ import type { DemoUser, RecentSearch, Repository } from '../src/types.js';
 
 const baseUser: DemoUser = {
   id: DEMO_USER_ID, email: 'demo@foodscope.local', stripeCustomerId: null,
-  stripeSubscriptionId: null, subscriptionStatus: 'inactive', subscriptionCurrentPeriodEnd: null,
+  stripeSubscriptionId: null, stripeCheckoutAttemptId: null, stripeCheckoutSessionId: null,
+  stripeCheckoutSessionUrl: null, stripeCheckoutExpiresAt: null,
+  subscriptionStatus: 'inactive', subscriptionCurrentPeriodEnd: null,
 };
 
 function harness(status = 'inactive') {
@@ -20,6 +22,8 @@ function harness(status = 'inactive') {
     }),
     getRecentSearches: vi.fn(async (_userId: string, limit: number) => searches.slice(0, limit)),
     setStripeCustomer: vi.fn(async (_userId: string, customerId: string) => { user = { ...user, stripeCustomerId: customerId }; }),
+    getOrCreateCheckoutAttempt: vi.fn(async () => ({ id: 'attempt_test', expiresAt: new Date(), sessionUrl: null })),
+    completeCheckoutAttempt: vi.fn(async () => undefined),
     processStripeEvent: vi.fn(async (event: Stripe.Event, currentSubscription?: Stripe.Subscription) => {
       if (event.type === 'customer.subscription.updated') {
         user = { ...user, subscriptionStatus: currentSubscription!.status };
