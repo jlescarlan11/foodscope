@@ -87,6 +87,10 @@ async function readBoundedJson(response: Response): Promise<unknown> {
   }
 }
 
+async function discardResponse(response: Response) {
+  await response.body?.cancel().catch(() => undefined);
+}
+
 export function normalizeProduct(raw: unknown, locale: Locale): Omit<Product, 'nutritionLocked'> | null {
   if (!isRecord(raw)) return null;
   const id = textValue(raw.code) ?? textValue(raw._id);
@@ -167,10 +171,12 @@ export class OpenFoodFactsProvider implements ProductProvider {
     };
     let response = await request();
     if (response.status === 429 || response.status === 503) {
+      await discardResponse(response);
       throw new ProductProviderRateLimitError(retryAfterSeconds(response));
     }
     if (response.status === 502 || response.status === 504) {
       const retryAfter = retryAfterSeconds(response);
+      await discardResponse(response);
       if (retryAfter !== undefined && retryAfter > 2) {
         throw new Error(`Open Food Facts returned ${response.status}`);
       }
@@ -178,9 +184,13 @@ export class OpenFoodFactsProvider implements ProductProvider {
       response = await request();
     }
     if (response.status === 429 || response.status === 503) {
+      await discardResponse(response);
       throw new ProductProviderRateLimitError(retryAfterSeconds(response));
     }
-    if (!response.ok) throw new Error(`Open Food Facts returned ${response.status}`);
+    if (!response.ok) {
+      await discardResponse(response);
+      throw new Error(`Open Food Facts returned ${response.status}`);
+    }
     const payload = await readBoundedJson(response);
     if (!isRecord(payload) || !Array.isArray(payload.products)) {
       throw new Error('Open Food Facts returned malformed data');

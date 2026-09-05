@@ -38,8 +38,14 @@ describe('Open Food Facts normalization', () => {
   });
 
   it('sends locale-aware headers and retries one gateway failure', async () => {
+    const cancel = vi.fn(async () => undefined);
     const fetcher = vi.fn()
-      .mockResolvedValueOnce(new Response('', { status: 502 }))
+      .mockResolvedValueOnce({
+        status: 502,
+        ok: false,
+        headers: new Headers(),
+        body: { cancel },
+      } as unknown as Response)
       .mockResolvedValueOnce(new Response(JSON.stringify({ products: [{ code: '123', product_name_fr: 'Avoine' }] }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
@@ -48,6 +54,7 @@ describe('Open Food Facts normalization', () => {
 
     await expect(provider.search('avoine', 'fr')).resolves.toMatchObject([{ id: '123', name: 'Avoine' }]);
     expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(cancel).toHaveBeenCalledOnce();
     const requestUrl = new URL(String(fetcher.mock.calls[0]?.[0]));
     expect(requestUrl.toString()).toContain('/cgi/search.pl?search_terms=avoine&search_simple=1');
     expect(requestUrl.searchParams.get('fields')?.split(',')).toEqual([
@@ -63,11 +70,18 @@ describe('Open Food Facts normalization', () => {
   });
 
   it('does not amplify rate limits and exposes Retry-After', async () => {
-    const fetcher = vi.fn(async () => new Response('', { status: 429, headers: { 'retry-after': '17' } }));
+    const cancel = vi.fn(async () => undefined);
+    const fetcher = vi.fn(async () => ({
+      status: 429,
+      ok: false,
+      headers: new Headers({ 'retry-after': '17' }),
+      body: { cancel },
+    } as unknown as Response));
     const provider = new OpenFoodFactsProvider('FoodscopeTest/1.0', fetcher);
 
     await expect(provider.search('milk', 'en')).rejects.toMatchObject({ retryAfterSeconds: 17 });
     expect(fetcher).toHaveBeenCalledOnce();
+    expect(cancel).toHaveBeenCalledOnce();
   });
 
   it('removes duplicate product IDs from malformed upstream results', async () => {
