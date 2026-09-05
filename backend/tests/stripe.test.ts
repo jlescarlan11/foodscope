@@ -108,4 +108,33 @@ describe('Stripe Checkout creation', () => {
     expect(setup.customersCreate).not.toHaveBeenCalled();
     expect(setup.sessionsCreate).not.toHaveBeenCalled();
   });
+
+  it('repairs an unsafe stored URL through the existing idempotent Session request', async () => {
+    const setup = harness('javascript:alert(document.domain)');
+
+    await expect(setup.provider.createCheckout(user)).resolves.toEqual({
+      url: 'https://checkout.stripe.test/session',
+    });
+    expect(setup.sessionsCreate).toHaveBeenCalledOnce();
+    expect(setup.sessionsCreate).toHaveBeenCalledWith(expect.anything(), {
+      idempotencyKey: `foodscope-checkout-${setup.attempt.id}`,
+    });
+    expect(setup.repository.completeCheckoutAttempt).toHaveBeenCalledWith(
+      user.id,
+      setup.attempt.id,
+      expect.objectContaining({ url: 'https://checkout.stripe.test/session' }),
+    );
+  });
+
+  it('does not persist or return an unsafe URL from Stripe', async () => {
+    const setup = harness();
+    setup.sessionsCreate.mockResolvedValueOnce({
+      id: 'cs_unsafe',
+      url: 'http://checkout.stripe.test/session',
+      expires_at: Math.floor(setup.attempt.expiresAt.getTime() / 1000),
+    });
+
+    await expect(setup.provider.createCheckout(user)).rejects.toThrow('safe Checkout URL');
+    expect(setup.repository.completeCheckoutAttempt).not.toHaveBeenCalled();
+  });
 });

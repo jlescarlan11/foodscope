@@ -9,6 +9,16 @@ function integrationIdentifier(attemptId: string) {
   return `foodscope_${Array.from(digest.subarray(0, 8), (byte) => alphabet[byte % alphabet.length]).join('')}`;
 }
 
+function safeCheckoutUrl(value: string | null) {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && !url.username && !url.password ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
 export class StripeBillingProvider implements BillingProvider {
   private readonly stripe: Stripe;
 
@@ -28,7 +38,8 @@ export class StripeBillingProvider implements BillingProvider {
     if (!this.config.stripePriceId) throw new Error('Stripe price is not configured');
 
     const attempt = await this.repository.getOrCreateCheckoutAttempt(user.id);
-    if (attempt.sessionUrl) return { url: attempt.sessionUrl };
+    const storedSessionUrl = safeCheckoutUrl(attempt.sessionUrl);
+    if (storedSessionUrl) return { url: storedSessionUrl };
 
     let customerId = user.stripeCustomerId;
     if (!customerId) {
@@ -51,13 +62,14 @@ export class StripeBillingProvider implements BillingProvider {
       expires_at: Math.floor(attempt.expiresAt.getTime() / 1000),
       integration_identifier: integrationIdentifier(attempt.id),
     }, { idempotencyKey: `foodscope-checkout-${attempt.id}` });
-    if (!session.url) throw new Error('Stripe did not return a Checkout URL');
+    const sessionUrl = safeCheckoutUrl(session.url);
+    if (!sessionUrl) throw new Error('Stripe did not return a safe Checkout URL');
     await this.repository.completeCheckoutAttempt(user.id, attempt.id, {
       id: session.id,
-      url: session.url,
+      url: sessionUrl,
       expiresAt: new Date(session.expires_at * 1000),
     });
-    return { url: session.url };
+    return { url: sessionUrl };
   }
 
   constructEvent(body: Buffer, signature: string) {
