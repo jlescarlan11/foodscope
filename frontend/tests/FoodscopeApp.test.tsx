@@ -293,6 +293,8 @@ describe('Foodscope locale switching', () => {
     await userEvent.type(screen.getByLabelText('Search products'), 'oats');
     await userEvent.click(screen.getByRole('button', { name: /^Search/ }));
 
+    expect(await screen.findByRole('heading', { level: 2, name: 'Search results' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: 'Oats' })).toBeInTheDocument();
     expect(await screen.findByText('44 kcal')).toBeInTheDocument();
     expect(screen.getByText('1.5 g')).toBeInTheDocument();
   });

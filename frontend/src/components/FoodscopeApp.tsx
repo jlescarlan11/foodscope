@@ -368,7 +368,7 @@ export function FoodscopeApp() {
       </section>
 
       <section className="results-section" aria-live="polite" aria-busy={loading}>
-        {products && <div className="results-header"><div><p>{messages.results}</p><span>{products.length} {messages.resultCount}</span></div><button onClick={() => setProducts(null)}>{messages.clear}</button></div>}
+        {products && <div className="results-header"><div><h2>{messages.results}</h2><span>{products.length} {messages.resultCount}</span></div><button onClick={() => setProducts(null)}>{messages.clear}</button></div>}
         {!loading && products === null && !searchError && <div className="empty"><span aria-hidden="true">⌕</span><p>{messages.emptyStart}</p></div>}
         {!loading && products?.length === 0 && <div className="empty"><span aria-hidden="true">○</span><p>{messages.emptyResults}</p></div>}
         {loading && <div className="empty"><span className="spinner" aria-hidden="true" /><p>{messages.searching}</p></div>}
