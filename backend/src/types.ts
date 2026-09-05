@@ -32,7 +32,12 @@ export type DemoUserState = Pick<
   'id' | 'subscriptionStatus' | 'subscriptionCurrentPeriodEnd'
 >;
 
-export type CheckoutAttempt = { id: string; expiresAt: Date; sessionUrl: string | null };
+export type CheckoutAttempt = {
+  id: string;
+  expiresAt: Date;
+  sessionUrl: string | null;
+  priceId: string | null;
+};
 
 export type RecentSearch = { id: number; query: string; locale: string; createdAt: Date };
 

@@ -19,7 +19,12 @@ const user: DemoUser = {
 };
 
 function harness(sessionUrl: string | null = null) {
-  const attempt = { id: '00000000-0000-4000-8000-000000000099', expiresAt: new Date('2030-01-01T00:31:00Z'), sessionUrl };
+  const attempt = {
+    id: '00000000-0000-4000-8000-000000000099',
+    expiresAt: new Date('2030-01-01T00:31:00Z'),
+    sessionUrl,
+    priceId: 'price_test',
+  };
   const repository = {
     getOrCreateCheckoutAttempt: vi.fn(async () => attempt),
     setStripeCustomer: vi.fn(async () => undefined),
@@ -255,6 +260,18 @@ describe('Stripe Checkout creation', () => {
     expect(setup.sessionsCreate).not.toHaveBeenCalled();
   });
 
+  it('never returns a stored Session created for a different configured Price', async () => {
+    const setup = harness('https://checkout.stripe.test/old-price');
+    setup.attempt.priceId = 'price_previous';
+
+    await expect(setup.provider.createCheckout(user)).rejects.toBeInstanceOf(
+      CheckoutUnavailableError,
+    );
+    expect(setup.pricesRetrieve).not.toHaveBeenCalled();
+    expect(setup.customersCreate).not.toHaveBeenCalled();
+    expect(setup.sessionsCreate).not.toHaveBeenCalled();
+  });
+
   it('repairs an unsafe stored URL through the existing idempotent Session request', async () => {
     const setup = harness('javascript:alert(document.domain)');
 
@@ -280,6 +297,7 @@ describe('Stripe Checkout creation', () => {
       id: '00000000-0000-4000-8000-000000000100',
       expiresAt: new Date('2030-01-01T01:02:00.000Z'),
       sessionUrl: null,
+      priceId: 'price_test',
     };
     vi.mocked(setup.repository.getOrCreateCheckoutAttempt)
       .mockResolvedValueOnce(setup.attempt)
@@ -338,6 +356,7 @@ describe('Stripe Checkout creation', () => {
       id: '00000000-0000-4000-8000-000000000100',
       expiresAt: new Date('2030-01-01T01:02:00.000Z'),
       sessionUrl: null,
+      priceId: 'price_test',
     };
     vi.mocked(setup.repository.getOrCreateCheckoutAttempt)
       .mockResolvedValueOnce(setup.attempt)

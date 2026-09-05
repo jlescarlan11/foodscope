@@ -109,10 +109,34 @@ describe('Stripe webhook repository', () => {
       },
       data: {
         stripeCheckoutAttemptId: null,
+        stripeCheckoutPriceId: null,
         stripeCheckoutExpiresAt: null,
       },
     });
   });
+
+  it.each([null, 'price_previous'])(
+    'blocks a future Checkout attempt without the configured Price binding (%s)',
+    async (stripeCheckoutPriceId) => {
+      const updateMany = vi.fn();
+      const database = {
+        user: {
+          findUniqueOrThrow: vi.fn(async () => ({
+            subscriptionStatus: 'inactive',
+            stripeCheckoutAttemptId: 'attempt_previous',
+            stripeCheckoutPriceId,
+            stripeCheckoutSessionUrl: 'https://checkout.stripe.test/previous',
+            stripeCheckoutExpiresAt: new Date('2100-01-01T00:00:00.000Z'),
+          })),
+          updateMany,
+        },
+      } as unknown as typeof prisma;
+
+      await expect(createRepository(database, 'price_test').getOrCreateCheckoutAttempt(DEMO_USER_ID))
+        .rejects.toBeInstanceOf(CheckoutUnavailableError);
+      expect(updateMany).not.toHaveBeenCalled();
+    },
+  );
 
   it('uses the Checkout eligibility allowlist in the atomic attempt reservation', async () => {
     const updateMany = vi.fn(async () => ({ count: 0 }));

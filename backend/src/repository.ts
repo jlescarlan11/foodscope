@@ -139,6 +139,7 @@ export function createRepository(database: typeof prisma, stripePriceId?: string
         select: {
           subscriptionStatus: true,
           stripeCheckoutAttemptId: true,
+          stripeCheckoutPriceId: true,
           stripeCheckoutSessionUrl: true,
           stripeCheckoutExpiresAt: true,
         },
@@ -151,10 +152,14 @@ export function createRepository(database: typeof prisma, stripePriceId?: string
         existing.stripeCheckoutAttemptId && existing.stripeCheckoutExpiresAt &&
         existing.stripeCheckoutExpiresAt > now
       ) {
+        if (existing.stripeCheckoutPriceId !== stripePriceId) {
+          throw new CheckoutUnavailableError();
+        }
         return {
           id: existing.stripeCheckoutAttemptId,
           expiresAt: existing.stripeCheckoutExpiresAt,
           sessionUrl: existing.stripeCheckoutSessionUrl,
+          priceId: existing.stripeCheckoutPriceId,
         };
       }
 
@@ -170,18 +175,22 @@ export function createRepository(database: typeof prisma, stripePriceId?: string
         },
         data: {
           stripeCheckoutAttemptId: attempt.id,
+          stripeCheckoutPriceId: stripePriceId ?? null,
           stripeCheckoutSessionId: null,
           stripeCheckoutSessionUrl: null,
           stripeCheckoutExpiresAt: attempt.expiresAt,
         },
       });
-      if (claimed.count === 1) return { ...attempt, sessionUrl: null };
+      if (claimed.count === 1) {
+        return { ...attempt, sessionUrl: null, priceId: stripePriceId ?? null };
+      }
 
       const winner = await database.user.findUniqueOrThrow({
         where: { id: userId },
         select: {
           subscriptionStatus: true,
           stripeCheckoutAttemptId: true,
+          stripeCheckoutPriceId: true,
           stripeCheckoutSessionUrl: true,
           stripeCheckoutExpiresAt: true,
         },
@@ -192,10 +201,14 @@ export function createRepository(database: typeof prisma, stripePriceId?: string
       if (!winner.stripeCheckoutAttemptId || !winner.stripeCheckoutExpiresAt) {
         throw new Error('Unable to reserve Checkout attempt');
       }
+      if (winner.stripeCheckoutPriceId !== stripePriceId) {
+        throw new CheckoutUnavailableError();
+      }
       return {
         id: winner.stripeCheckoutAttemptId,
         expiresAt: winner.stripeCheckoutExpiresAt,
         sessionUrl: winner.stripeCheckoutSessionUrl,
+        priceId: winner.stripeCheckoutPriceId,
       };
     },
     async completeCheckoutAttempt(userId, attemptId, session) {
@@ -219,6 +232,7 @@ export function createRepository(database: typeof prisma, stripePriceId?: string
         },
         data: {
           stripeCheckoutAttemptId: null,
+          stripeCheckoutPriceId: null,
           stripeCheckoutExpiresAt: null,
         },
       });
@@ -294,6 +308,7 @@ export function createRepository(database: typeof prisma, stripePriceId?: string
                   subscriptionCurrentPeriodEnd: periodEnd,
                   ...(shouldClearCheckoutAttempt ? {
                     stripeCheckoutAttemptId: null,
+                    stripeCheckoutPriceId: null,
                     stripeCheckoutSessionId: null,
                     stripeCheckoutSessionUrl: null,
                     stripeCheckoutExpiresAt: null,

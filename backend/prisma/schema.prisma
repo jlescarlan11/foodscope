@@ -13,6 +13,7 @@ model User {
   stripeCustomerId              String?        @unique @db.VarChar(255)
   stripeSubscriptionId          String?        @unique @db.VarChar(255)
   stripeCheckoutAttemptId       String?        @db.VarChar(36)
+  stripeCheckoutPriceId         String?        @db.VarChar(255)
   stripeCheckoutSessionId       String?        @unique @db.VarChar(255)
   stripeCheckoutSessionUrl      String?        @db.Text
   stripeCheckoutExpiresAt       DateTime?

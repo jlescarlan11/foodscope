@@ -313,6 +313,9 @@ integration('Repository with MySQL', () => {
       subject.getOrCreateCheckoutAttempt(DEMO_USER_ID),
     ]);
     expect(second.id).toBe(first.id);
+    expect(first.priceId).toBe('price_test');
+    await expect(database.user.findUniqueOrThrow({ where: { id: DEMO_USER_ID } }))
+      .resolves.toMatchObject({ stripeCheckoutPriceId: 'price_test' });
 
     await subject.releaseCheckoutAttempt(DEMO_USER_ID, first.id);
     const replacement = await subject.getOrCreateCheckoutAttempt(DEMO_USER_ID);
@@ -359,6 +362,7 @@ integration('Repository with MySQL', () => {
         stripeSubscriptionId: 'sub_integration',
         subscriptionStatus: 'canceled',
         stripeCheckoutAttemptId: null,
+        stripeCheckoutPriceId: null,
         stripeCheckoutSessionId: null,
         stripeCheckoutSessionUrl: null,
         stripeCheckoutExpiresAt: null,

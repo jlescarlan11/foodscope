@@ -105,6 +105,7 @@ export class StripeBillingProvider implements BillingProvider {
     if (!this.config.stripePriceId) throw new Error('Stripe price is not configured');
 
     const attempt = await this.repository.getOrCreateCheckoutAttempt(user.id);
+    if (attempt.priceId !== this.config.stripePriceId) throw new CheckoutUnavailableError();
     await this.validateConfiguredPrice();
     const storedSessionUrl = safeCheckoutUrl(attempt.sessionUrl);
     if (storedSessionUrl) return { url: storedSessionUrl };
