@@ -2,12 +2,13 @@ import { createApp } from './app.js';
 import { loadConfig } from './config.js';
 import { OpenFoodFactsProvider } from './open-food-facts.js';
 import { prisma } from './prisma.js';
-import { repository } from './repository.js';
+import { createRepository } from './repository.js';
 import { createBillingProvider } from './stripe.js';
 import { startHttpServer } from './http-server.js';
 import { disconnectDatabase, initializeDatabase } from './database-startup.js';
 
 const config = loadConfig();
+const repository = createRepository(prisma, config.stripePriceId);
 
 const app = createApp({
   config,

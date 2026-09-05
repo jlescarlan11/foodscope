@@ -11,7 +11,13 @@ function subscription(status: Stripe.Subscription.Status) {
     customer: 'cus_demo',
     metadata: { demoUserId: DEMO_USER_ID },
     status,
-    items: { data: [{ current_period_end: 1_800_000_000 }] },
+    items: { data: [{
+      current_period_end: 1_800_000_000,
+      price: {
+        id: 'price_test', livemode: false, type: 'recurring',
+        recurring: { interval: 'month', interval_count: 1 },
+      },
+    }] },
   } as unknown as Stripe.Subscription;
 }
 
@@ -26,6 +32,9 @@ function subscriptionEvent(id = 'evt_stale') {
 const eventMarker = () => ({
   createMany: vi.fn(async () => ({ count: 1 })),
 });
+
+const createBillingRepository = (database: typeof prisma) =>
+  createRepository(database, 'price_test');
 
 describe('Stripe webhook repository', () => {
   it('selects only workflow-required demo-user columns', async () => {
@@ -158,7 +167,7 @@ describe('Stripe webhook repository', () => {
 
     const current = subscription('canceled');
     current.metadata.demoUserId = 'unexpected-user';
-    await createRepository(database).processStripeEvent(subscriptionEvent(), async () => current);
+    await createBillingRepository(database).processStripeEvent(subscriptionEvent(), async () => current);
 
     expect(operations).toEqual(['event', 'lock', 'update']);
     expect(database.$transaction).toHaveBeenCalledWith(expect.any(Function), {
@@ -174,6 +183,89 @@ describe('Stripe webhook repository', () => {
     }));
     expect(tx.user.findUnique).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: DEMO_USER_ID },
+    }));
+  });
+
+  it('fails closed when the active subscription no longer contains the monthly plan', async () => {
+    const update = vi.fn();
+    const tx = {
+      stripeWebhookEvent: eventMarker(),
+      $queryRaw: vi.fn(async () => [{ id: DEMO_USER_ID }]),
+      user: { update, findUnique: vi.fn(async () => ({
+        id: DEMO_USER_ID,
+        stripeCustomerId: 'cus_demo',
+        stripeSubscriptionId: 'sub_current',
+        stripeCheckoutAttemptId: null,
+      })) },
+    };
+    const database = {
+      $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<void>) => callback(tx)),
+    } as unknown as typeof prisma;
+    const current = subscription('active') as unknown as Record<string, unknown>;
+    current.items = { data: [{
+      current_period_end: 1_800_000_000,
+      price: {
+        id: 'price_other', livemode: false, type: 'recurring',
+        recurring: { interval: 'year', interval_count: 1 },
+      },
+    }] };
+
+    await createBillingRepository(database).processStripeEvent(
+      subscriptionEvent('evt_wrong_price'),
+      async () => current as unknown as Stripe.Subscription,
+    );
+
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        subscriptionStatus: 'unknown',
+        subscriptionCurrentPeriodEnd: null,
+      }),
+    }));
+  });
+
+  it('uses only the configured monthly item to determine entitlement expiry', async () => {
+    const update = vi.fn();
+    const tx = {
+      stripeWebhookEvent: eventMarker(),
+      $queryRaw: vi.fn(async () => [{ id: DEMO_USER_ID }]),
+      user: { update, findUnique: vi.fn(async () => ({
+        id: DEMO_USER_ID,
+        stripeCustomerId: 'cus_demo',
+        stripeSubscriptionId: 'sub_current',
+        stripeCheckoutAttemptId: null,
+      })) },
+    };
+    const database = {
+      $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<void>) => callback(tx)),
+    } as unknown as typeof prisma;
+    const current = subscription('active') as unknown as Record<string, unknown>;
+    current.items = { data: [
+      {
+        current_period_end: 1_800_000_000,
+        price: {
+          id: 'price_test', livemode: false, type: 'recurring',
+          recurring: { interval: 'month', interval_count: 1 },
+        },
+      },
+      {
+        current_period_end: 1_900_000_000,
+        price: {
+          id: 'price_other', livemode: false, type: 'recurring',
+          recurring: { interval: 'year', interval_count: 1 },
+        },
+      },
+    ] };
+
+    await createBillingRepository(database).processStripeEvent(
+      subscriptionEvent('evt_multiple_prices'),
+      async () => current as unknown as Stripe.Subscription,
+    );
+
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        subscriptionStatus: 'active',
+        subscriptionCurrentPeriodEnd: new Date(1_800_000_000 * 1000),
+      }),
     }));
   });
 
@@ -197,7 +289,7 @@ describe('Stripe webhook repository', () => {
       stripeWebhookEvent: { findUnique: vi.fn() },
     } as unknown as typeof prisma;
 
-    await createRepository(database).processStripeEvent(
+    await createBillingRepository(database).processStripeEvent(
       subscriptionEvent(),
       async () => subscription('active'),
     );
@@ -225,7 +317,7 @@ describe('Stripe webhook repository', () => {
       stripeWebhookEvent: { findUnique: vi.fn() },
     } as unknown as typeof prisma;
 
-    await createRepository(database).processStripeEvent(
+    await createBillingRepository(database).processStripeEvent(
       subscriptionEvent('evt_unproven_subscription'),
       async () => subscription('active'),
     );
@@ -255,7 +347,7 @@ describe('Stripe webhook repository', () => {
     const current = subscription('active');
     current.metadata.checkoutAttemptId = 'attempt_current';
 
-    await createRepository(database).processStripeEvent(subscriptionEvent(), async () => current);
+    await createBillingRepository(database).processStripeEvent(subscriptionEvent(), async () => current);
 
     expect(update).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: DEMO_USER_ID },
@@ -290,7 +382,7 @@ describe('Stripe webhook repository', () => {
       stripeWebhookEvent: { findUnique: vi.fn() },
     } as unknown as typeof prisma;
 
-    await createRepository(database).processStripeEvent(
+    await createBillingRepository(database).processStripeEvent(
       subscriptionEvent('evt_old_terminal'),
       async () => subscription('canceled'),
     );
@@ -327,7 +419,7 @@ describe('Stripe webhook repository', () => {
       const current = subscription('active') as unknown as Record<string, unknown>;
       current.status = status;
 
-      await createRepository(database).processStripeEvent(
+      await createBillingRepository(database).processStripeEvent(
         subscriptionEvent('evt_unknown_status'),
         async () => current as unknown as Stripe.Subscription,
       );
@@ -364,7 +456,7 @@ describe('Stripe webhook repository', () => {
     const current = subscription('active') as unknown as Record<string, unknown>;
     current.items = items;
 
-    await createRepository(database).processStripeEvent(
+    await createBillingRepository(database).processStripeEvent(
       subscriptionEvent('evt_malformed_period'),
       async () => current as unknown as Stripe.Subscription,
     );
@@ -391,7 +483,7 @@ describe('Stripe webhook repository', () => {
 
     const delivered = subscriptionEvent();
     (delivered.data.object as Stripe.Subscription).metadata.demoUserId = 'unexpected-user';
-    await createRepository(database).processStripeEvent(delivered, retrieveSubscription);
+    await createBillingRepository(database).processStripeEvent(delivered, retrieveSubscription);
 
     expect(retrieveSubscription).not.toHaveBeenCalled();
     const lockQuery = (tx.$queryRaw.mock.calls as unknown[][])[0]?.[0] as {
@@ -422,7 +514,7 @@ describe('Stripe webhook repository', () => {
       data: { object: null },
     } as unknown as Stripe.Event;
 
-    await expect(createRepository(database).processStripeEvent(malformed, retrieveSubscription))
+    await expect(createBillingRepository(database).processStripeEvent(malformed, retrieveSubscription))
       .resolves.toBeUndefined();
 
     expect(tx.stripeWebhookEvent.createMany).toHaveBeenCalledWith({
@@ -446,7 +538,7 @@ describe('Stripe webhook repository', () => {
       $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<void>) => callback(tx)),
     } as unknown as typeof prisma;
 
-    await expect(createRepository(database).processStripeEvent(
+    await expect(createBillingRepository(database).processStripeEvent(
       subscriptionEvent('evt_duplicate'),
       retrieveSubscription,
     )).resolves.toBeUndefined();
@@ -460,7 +552,7 @@ describe('Stripe webhook repository', () => {
       $transaction: vi.fn(async () => { throw failure; }),
     } as unknown as typeof prisma;
 
-    await expect(createRepository(database).processStripeEvent(
+    await expect(createBillingRepository(database).processStripeEvent(
       subscriptionEvent(),
       async () => subscription('active'),
     ))

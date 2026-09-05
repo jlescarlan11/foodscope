@@ -7,6 +7,7 @@ import {
   isStripeTestSecretKey,
   isStripeWebhookSecret,
 } from './stripe-config.js';
+import { isMonthlyTestPrice } from './stripe-price.js';
 import type { BillingProvider, DemoUser, Repository } from './types.js';
 
 const STRIPE_REQUEST_TIMEOUT_MS = 5_000;
@@ -41,6 +42,9 @@ function isStaleCheckoutExpiryError(error: unknown, expiresAt: Date) {
 export class StripeBillingProvider implements BillingProvider {
   private readonly stripe: Stripe;
   private readonly checkoutRequests = new Map<string, Promise<{ url: string }>>();
+  private configuredPriceValidation: Promise<void> | null = null;
+  private configuredPriceError: Error | null = null;
+  private configuredPriceValidated = false;
 
   constructor(
     private readonly config: AppConfig,
@@ -67,6 +71,27 @@ export class StripeBillingProvider implements BillingProvider {
     return request;
   }
 
+  private validateConfiguredPrice() {
+    if (this.configuredPriceValidated) return Promise.resolve();
+    if (this.configuredPriceError) return Promise.reject(this.configuredPriceError);
+    if (this.configuredPriceValidation) return this.configuredPriceValidation;
+    if (!this.config.stripePriceId) return Promise.reject(new Error('Stripe price is not configured'));
+
+    const request = this.stripe.prices.retrieve(this.config.stripePriceId).then((price) => {
+      if (!isMonthlyTestPrice(price, this.config.stripePriceId!)) {
+        this.configuredPriceError = new Error(
+          'Stripe Price does not match the Foodscope monthly plan',
+        );
+        throw this.configuredPriceError;
+      }
+      this.configuredPriceValidated = true;
+    }).finally(() => {
+      if (this.configuredPriceValidation === request) this.configuredPriceValidation = null;
+    });
+    this.configuredPriceValidation = request;
+    return request;
+  }
+
   private async createCheckoutOnce(
     user: DemoUser,
     canRecoverStaleExpiry = true,
@@ -74,6 +99,7 @@ export class StripeBillingProvider implements BillingProvider {
     if (!this.config.stripePriceId) throw new Error('Stripe price is not configured');
 
     const attempt = await this.repository.getOrCreateCheckoutAttempt(user.id);
+    await this.validateConfiguredPrice();
     const storedSessionUrl = safeCheckoutUrl(attempt.sessionUrl);
     if (storedSessionUrl) return { url: storedSessionUrl };
 

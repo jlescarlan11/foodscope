@@ -15,7 +15,13 @@ function subscription(status: Stripe.Subscription.Status) {
     customer: 'cus_integration',
     metadata: { demoUserId: DEMO_USER_ID },
     status,
-    items: { data: [{ current_period_end: 1_800_000_000 }] },
+    items: { data: [{
+      current_period_end: 1_800_000_000,
+      price: {
+        id: 'price_test', livemode: false, type: 'recurring',
+        recurring: { interval: 'month', interval_count: 1 },
+      },
+    }] },
   } as unknown as Stripe.Subscription;
 }
 
@@ -42,7 +48,7 @@ function checkoutEvent(id: string, sessionId: string) {
 
 integration('Repository with MySQL', () => {
   const database = new PrismaClient({ datasourceUrl: testDatabaseUrl });
-  const subject = createRepository(database);
+  const subject = createRepository(database, 'price_test');
 
   beforeAll(async () => {
     await database.user.upsert({

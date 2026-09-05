@@ -36,10 +36,17 @@ function harness(sessionUrl: string | null = null) {
     data: Array<{ status: Stripe.Subscription.Status }>;
     has_more: boolean;
   }> => ({ data: [], has_more: false }));
+  const pricesRetrieve = vi.fn(async () => ({
+    id: 'price_test',
+    livemode: false,
+    type: 'recurring',
+    recurring: { interval: 'month', interval_count: 1 },
+  }));
   const stripe = {
     customers: { create: customersCreate },
     checkout: { sessions: { create: sessionsCreate } },
     subscriptions: { list: subscriptionsList },
+    prices: { retrieve: pricesRetrieve },
   } as unknown as Stripe;
   const provider = new StripeBillingProvider({
     port: 4000,
@@ -49,7 +56,15 @@ function harness(sessionUrl: string | null = null) {
     stripeSecretKey: 'sk_test_fake',
     stripePriceId: 'price_test',
   }, repository, stripe);
-  return { provider, repository, customersCreate, sessionsCreate, subscriptionsList, attempt };
+  return {
+    provider,
+    repository,
+    customersCreate,
+    sessionsCreate,
+    subscriptionsList,
+    pricesRetrieve,
+    attempt,
+  };
 }
 
 describe('Stripe Checkout creation', () => {
@@ -134,6 +149,45 @@ describe('Stripe Checkout creation', () => {
     });
   });
 
+  it('rejects a configured Price that is not monthly before creating resources', async () => {
+    const setup = harness();
+    setup.pricesRetrieve.mockResolvedValueOnce({
+      id: 'price_test',
+      livemode: false,
+      type: 'recurring',
+      recurring: { interval: 'year', interval_count: 1 },
+    });
+
+    await expect(setup.provider.createCheckout(user)).rejects.toThrow(
+      'Stripe Price does not match the Foodscope monthly plan',
+    );
+    await expect(setup.provider.createCheckout(user)).rejects.toThrow(
+      'Stripe Price does not match the Foodscope monthly plan',
+    );
+    expect(setup.pricesRetrieve).toHaveBeenCalledOnce();
+    expect(setup.customersCreate).not.toHaveBeenCalled();
+    expect(setup.subscriptionsList).not.toHaveBeenCalled();
+    expect(setup.sessionsCreate).not.toHaveBeenCalled();
+  });
+
+  it('retries a transient Price read without creating resources on the failed attempt', async () => {
+    const setup = harness();
+    setup.pricesRetrieve.mockRejectedValueOnce(new Error('temporary Price read failure'));
+
+    await expect(setup.provider.createCheckout(user)).rejects.toThrow(
+      'temporary Price read failure',
+    );
+    expect(setup.customersCreate).not.toHaveBeenCalled();
+    expect(setup.sessionsCreate).not.toHaveBeenCalled();
+
+    await expect(setup.provider.createCheckout(user)).resolves.toEqual({
+      url: 'https://checkout.stripe.test/session',
+    });
+    expect(setup.pricesRetrieve).toHaveBeenCalledTimes(2);
+    expect(setup.customersCreate).toHaveBeenCalledOnce();
+    expect(setup.sessionsCreate).toHaveBeenCalledOnce();
+  });
+
   it('coalesces concurrent Checkout requests before calling Stripe', async () => {
     const setup = harness();
 
@@ -146,6 +200,7 @@ describe('Stripe Checkout creation', () => {
     ]);
 
     expect(setup.repository.getOrCreateCheckoutAttempt).toHaveBeenCalledOnce();
+    expect(setup.pricesRetrieve).toHaveBeenCalledOnce();
     expect(setup.customersCreate).toHaveBeenCalledOnce();
     expect(setup.sessionsCreate).toHaveBeenCalledOnce();
     expect(setup.repository.completeCheckoutAttempt).toHaveBeenCalledOnce();
@@ -175,6 +230,7 @@ describe('Stripe Checkout creation', () => {
     await expect(setup.provider.createCheckout(user)).resolves.toEqual({
       url: 'https://checkout.stripe.test/existing',
     });
+    expect(setup.pricesRetrieve).toHaveBeenCalledOnce();
     expect(setup.customersCreate).not.toHaveBeenCalled();
     expect(setup.sessionsCreate).not.toHaveBeenCalled();
   });

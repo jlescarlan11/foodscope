@@ -10,15 +10,18 @@ import {
 } from './constants.js';
 import { CheckoutUnavailableError } from './errors.js';
 import { prisma } from './prisma.js';
+import { isMonthlyTestPrice } from './stripe-price.js';
 import type { Locale, } from './constants.js';
 import type { Repository } from './types.js';
 
-function subscriptionPeriodEnd(subscription: Stripe.Subscription) {
+function subscriptionPeriodEnd(subscription: Stripe.Subscription, stripePriceId: string | undefined) {
+  if (!stripePriceId) return null;
   const items = isRecord(subscription.items) && Array.isArray(subscription.items.data)
     ? subscription.items.data
     : [];
   const itemEnds = items.flatMap((item) =>
-    isRecord(item) && typeof item.current_period_end === 'number' &&
+    isRecord(item) && isMonthlyTestPrice(item.price, stripePriceId) &&
+      typeof item.current_period_end === 'number' &&
       Number.isFinite(item.current_period_end) && item.current_period_end > 0
       ? [item.current_period_end]
       : []);
@@ -86,7 +89,7 @@ async function lockSubscriptionUser(
   return rows.length > 0;
 }
 
-export function createRepository(database: typeof prisma): Repository {
+export function createRepository(database: typeof prisma, stripePriceId?: string): Repository {
   return {
     getDemoUser: () => database.user.findUnique({
       where: { id: DEMO_USER_ID },
@@ -273,7 +276,7 @@ export function createRepository(database: typeof prisma): Repository {
               const normalizedStatus = normalizeStripeSubscriptionStatus(
                 currentSubscription.status,
               );
-              const periodEnd = subscriptionPeriodEnd(currentSubscription);
+              const periodEnd = subscriptionPeriodEnd(currentSubscription, stripePriceId);
               const subscriptionStatus = isActiveSubscription(normalizedStatus) && !periodEnd
                 ? 'unknown'
                 : normalizedStatus;
@@ -303,5 +306,3 @@ export function createRepository(database: typeof prisma): Repository {
     },
   };
 }
-
-export const repository = createRepository(prisma);
