@@ -43,7 +43,9 @@ describe('Foodscope locale switching', () => {
       const url = String(input);
       const body = url.includes('/api/user')
         ? accountState()
-        : url.includes('/api/searches/recent') ? { searches: [] } : { products: [] };
+        : url.includes('/api/searches/recent')
+          ? { searches: [] }
+          : { products: [], account: accountState() };
       return { ok: true, json: async () => body } as Response;
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -246,13 +248,19 @@ describe('Foodscope locale switching', () => {
     expect(searchCalls[0]?.[1]?.signal?.aborted).toBe(true);
     await act(async () => resolveSecond({
       ok: true,
-      json: async () => ({ products: [{ id: '2', name: 'Neu', brand: null, image: null, nutritionLocked: true }] }),
+      json: async () => ({
+        products: [{ id: '2', name: 'Neu', brand: null, image: null, nutritionLocked: true }],
+        account: accountState(),
+      }),
     } as Response));
     expect(await screen.findByRole('heading', { name: 'Neu' })).toBeInTheDocument();
 
     await act(async () => resolveFirst({
       ok: true,
-      json: async () => ({ products: [{ id: '1', name: 'Old', brand: null, image: null, nutritionLocked: true }] }),
+      json: async () => ({
+        products: [{ id: '1', name: 'Old', brand: null, image: null, nutritionLocked: true }],
+        account: accountState(),
+      }),
     } as Response));
     expect(screen.queryByRole('heading', { name: 'Old' })).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Neu' })).toBeInTheDocument();
@@ -283,7 +291,7 @@ describe('Foodscope locale switching', () => {
 
     await act(async () => resolveSearch({
       ok: true,
-      json: async () => ({ products: [] }),
+      json: async () => ({ products: [], account: accountState() }),
     } as Response));
   });
 
@@ -303,7 +311,7 @@ describe('Foodscope locale switching', () => {
       searchAttempts += 1;
       return searchAttempts === 1
         ? { ok: false, status: 502 } as Response
-        : { ok: true, json: async () => ({ products: [] }) } as Response;
+        : { ok: true, json: async () => ({ products: [], account: accountState() }) } as Response;
     }));
     render(<FoodscopeApp />);
 
@@ -335,7 +343,10 @@ describe('Foodscope locale switching', () => {
           init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
         });
       }
-      return Promise.resolve({ ok: true, json: async () => ({ products: [] }) } as Response);
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ products: [], account: accountState() }),
+      } as Response);
     }));
     const view = render(<FoodscopeApp />);
     await screen.findByText('Free plan');
@@ -353,11 +364,12 @@ describe('Foodscope locale switching', () => {
 
   it.each([
     {},
-    { products: 'not-an-array' },
+    { products: [] },
+    { products: 'not-an-array', account: accountState() },
     { products: [{ id: 'unsafe', name: 'Unsafe', brand: null, image: null, nutritionLocked: true,
-      nutrition: { fat: { value: 1, unit: 'g' } } }] },
+      nutrition: { fat: { value: 1, unit: 'g' } } }], account: accountState() },
     { products: [{ id: 'invalid-unit', name: 'Invalid', brand: null, image: null,
-      nutritionLocked: false, nutrition: { fat: { value: 1, unit: 'kcal' } } }] },
+      nutritionLocked: false, nutrition: { fat: { value: 1, unit: 'kcal' } } }], account: accountState() },
     { products: [], account: { nutritionAccess: false } },
   ])('reports a recoverable error for malformed product response %#', async (body) => {
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
@@ -380,6 +392,52 @@ describe('Foodscope locale switching', () => {
     expect(screen.getByRole('button', { name: /^Search/ })).toBeEnabled();
   });
 
+  it('fails closed on a search response without authoritative account state', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      const body = url.includes('/api/user')
+        ? accountState({ nutritionAccess: true, checkoutAvailable: false })
+        : url.includes('/api/searches/recent')
+          ? { searches: [] }
+          : { products: [{
+              id: 'locked', name: 'Locked result', brand: null, image: null,
+              nutritionLocked: true,
+            }] };
+      return { ok: true, json: async () => body } as Response;
+    }));
+    render(<FoodscopeApp />);
+
+    expect(await screen.findByText('Nutrition unlocked')).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText('Search products'), 'oats');
+    await userEvent.click(screen.getByRole('button', { name: /^Search/ }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('We could not complete that search');
+    expect(screen.getByText('Plan status unavailable')).toBeInTheDocument();
+    expect(screen.queryByText('Nutrition unlocked')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Locked result' })).not.toBeInTheDocument();
+  });
+
+  it('applies authoritative revocation even when product data is malformed', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      const body = url.includes('/api/user')
+        ? accountState({ nutritionAccess: true, checkoutAvailable: false })
+        : url.includes('/api/searches/recent')
+          ? { searches: [] }
+          : { products: 'malformed', account: accountState() };
+      return { ok: true, json: async () => body } as Response;
+    }));
+    render(<FoodscopeApp />);
+
+    expect(await screen.findByText('Nutrition unlocked')).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText('Search products'), 'oats');
+    await userEvent.click(screen.getByRole('button', { name: /^Search/ }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('We could not complete that search');
+    expect(screen.getByText('Free plan')).toBeInTheDocument();
+    expect(screen.queryByText('Nutrition unlocked')).not.toBeInTheDocument();
+  });
+
   it('renders the explicit normalized nutrition value and unit', async () => {
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
@@ -390,7 +448,7 @@ describe('Foodscope locale switching', () => {
           : { products: [{
               id: 'nutrition', name: 'Oats', brand: null, image: null, nutritionLocked: false,
               nutrition: { energyKcal: { value: 44, unit: 'kcal' }, fat: { value: 1.5, unit: 'g' } },
-            }] };
+            }], account: accountState({ nutritionAccess: true, checkoutAvailable: false }) };
       return { ok: true, json: async () => body } as Response;
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -795,7 +853,7 @@ describe('Foodscope locale switching', () => {
       return new Promise<Response>((resolve, reject) => {
         const completion = window.setTimeout(() => resolve({
           ok: true,
-          json: async () => ({ products: [] }),
+          json: async () => ({ products: [], account: accountState() }),
         } as Response), 23_000);
         init?.signal?.addEventListener('abort', () => {
           window.clearTimeout(completion);
@@ -991,7 +1049,7 @@ describe('Foodscope locale switching', () => {
           : { products: [{
               id: 'image', name: 'Oats', brand: null,
               image: 'https://images.openfoodfacts.org/oats.jpg', nutritionLocked: true,
-            }] };
+            }], account: accountState() };
       return { ok: true, json: async () => body } as Response;
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -1019,7 +1077,7 @@ describe('Foodscope locale switching', () => {
           : { products: [{
               id: 'missing', name: 'Missing nutrition', brand: null, image: null,
               nutritionLocked: false,
-            }] };
+            }], account: accountState() };
       return { ok: true, json: async () => body } as Response;
     });
     vi.stubGlobal('fetch', fetchMock);

@@ -123,14 +123,22 @@ function isUserState(value: unknown): value is UserState {
     && typeof candidate.checkoutAvailable === 'boolean';
 }
 
+function searchResponseAccount(value: unknown):
+  | { valid: true; account: UserState | null }
+  | { valid: false } {
+  if (!value || typeof value !== 'object' || !('account' in value)) return { valid: false };
+  const account = (value as Record<string, unknown>).account;
+  return account === null || isUserState(account)
+    ? { valid: true, account }
+    : { valid: false };
+}
+
 function isProductSearchResponse(
   value: unknown,
-): value is { products: Product[]; account?: UserState | null } {
+): value is { products: Product[]; account: UserState | null } {
   if (!value || typeof value !== 'object') return false;
   const response = value as Record<string, unknown>;
-  if (
-    'account' in response && response.account !== null && !isUserState(response.account)
-  ) return false;
+  if (!searchResponseAccount(response).valid) return false;
   const products = response.products;
   if (!Array.isArray(products)) return false;
   return products.every((value) => {
@@ -350,16 +358,20 @@ export function FoodscopeApp() {
         },
         REQUEST_TIMEOUT_MS.search,
       );
-      if (!isProductSearchResponse(result)) throw new Error('Invalid product response');
       if (sequenceId !== searchSequence.current) return;
-      setProducts(result.products);
-      if ('account' in result) {
-        accountController.current?.abort();
-        accountController.current = null;
-        accountSequence.current += 1;
-        setUser(result.account ?? null);
-        setAccountState(result.account ? 'ready' : 'error');
+      const account = searchResponseAccount(result);
+      accountController.current?.abort();
+      accountController.current = null;
+      accountSequence.current += 1;
+      if (!account.valid) {
+        setUser(null);
+        setAccountState('error');
+        throw new Error('Invalid product response');
       }
+      setUser(account.account);
+      setAccountState(account.account ? 'ready' : 'error');
+      if (!isProductSearchResponse(result)) throw new Error('Invalid product response');
+      setProducts(result.products);
       if (retrySearchAttempt.current?.requestId === operationId) retrySearchAttempt.current = null;
       void refreshRecent();
     } catch (searchError) {
