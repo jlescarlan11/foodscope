@@ -2,7 +2,7 @@
   "name": "foodscope-backend",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=20.9.0" },
+  "engines": { "node": ">=24.0.0" },
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.build.json",

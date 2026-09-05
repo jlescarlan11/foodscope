@@ -29,7 +29,7 @@ and energy is conservatively capped at 1,000 kcal per 100 g.
 
 ## Prerequisites
 
-- Node.js 20.9 or newer (required by the pinned Next.js version)
+- Node.js 24 LTS
 - npm 10 or newer
 - Docker with Compose
 - Optional for the subscription walkthrough: a Stripe account in test mode and the Stripe CLI
