@@ -52,7 +52,7 @@ async function api<T>(
       signal: controller.signal,
     });
     if (!response.ok) throw new ApiResponseError(response.status);
-    return response.json() as Promise<T>;
+    return await response.json() as T;
   } finally {
     window.clearTimeout(timeout);
     callerSignal?.removeEventListener('abort', abortFromCaller);

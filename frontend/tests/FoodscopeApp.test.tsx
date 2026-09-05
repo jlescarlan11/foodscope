@@ -476,6 +476,28 @@ describe('Foodscope locale switching', () => {
     expect(screen.queryByRole('button', { name: 'Unlock nutrition' })).not.toBeInTheDocument();
   });
 
+  it('keeps the account deadline active while a response body stalls', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', vi.fn((input: string | URL | Request, init?: RequestInit) => {
+      if (String(input).includes('/api/searches/recent')) {
+        return Promise.resolve({ ok: true, json: async () => ({ searches: [] }) } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
+        }),
+      } as Response);
+    }));
+
+    render(<FoodscopeApp />);
+    await act(async () => Promise.resolve());
+    await act(async () => vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS.account));
+
+    expect(screen.getByRole('button', { name: 'Retry plan status' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Unlock nutrition' })).not.toBeInTheDocument();
+  });
+
   it('recovers from a product search that never responds', async () => {
     vi.useFakeTimers();
     vi.stubGlobal('fetch', vi.fn((input: string | URL | Request, init?: RequestInit) => {
