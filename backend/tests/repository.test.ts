@@ -120,6 +120,34 @@ describe('Stripe webhook repository', () => {
     expect(update).not.toHaveBeenCalled();
   });
 
+  it('does not adopt an unproven subscription when no subscription is stored', async () => {
+    const update = vi.fn();
+    const tx = {
+      stripeWebhookEvent: { create: vi.fn() },
+      $queryRaw: vi.fn(async () => [{ id: DEMO_USER_ID }]),
+      user: {
+        update,
+        findUnique: vi.fn(async () => ({
+          id: DEMO_USER_ID,
+          stripeCustomerId: 'cus_demo',
+          stripeSubscriptionId: null,
+          stripeCheckoutAttemptId: null,
+        })),
+      },
+    };
+    const database = {
+      $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<void>) => callback(tx)),
+      stripeWebhookEvent: { findUnique: vi.fn() },
+    } as unknown as typeof prisma;
+
+    await createRepository(database).processStripeEvent(
+      subscriptionEvent('evt_unproven_subscription'),
+      async () => subscription('active'),
+    );
+
+    expect(update).not.toHaveBeenCalled();
+  });
+
   it('accepts a new subscription only when it matches the durable Checkout attempt', async () => {
     const update = vi.fn();
     const tx = {

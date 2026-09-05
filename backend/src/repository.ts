@@ -231,7 +231,6 @@ export function createRepository(database: typeof prisma): Repository {
               currentSubscription.metadata.checkoutAttemptId === user.stripeCheckoutAttemptId
             );
             if (user && (
-              user.stripeSubscriptionId === null ||
               user.stripeSubscriptionId === currentSubscription.id ||
               isCheckoutHandoff
             )) {

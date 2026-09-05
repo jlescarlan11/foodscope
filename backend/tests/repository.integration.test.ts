@@ -49,6 +49,7 @@ integration('Repository with MySQL', () => {
         id: DEMO_USER_ID,
         email: DEMO_USER_EMAIL,
         stripeCustomerId: 'cus_integration',
+        stripeSubscriptionId: 'sub_integration',
         subscriptionStatus: 'inactive',
       },
     });
@@ -139,6 +140,30 @@ integration('Repository with MySQL', () => {
     })).resolves.toMatchObject({
       id: malformed.id,
       type: malformed.type,
+    });
+  });
+
+  it('does not adopt a subscription without a stored ID or Checkout handoff', async () => {
+    await database.user.update({
+      where: { id: DEMO_USER_ID },
+      data: {
+        stripeSubscriptionId: null,
+        stripeCheckoutAttemptId: null,
+        subscriptionStatus: 'inactive',
+      },
+    });
+
+    await subject.processStripeEvent(
+      event('evt_unproven_integration', 'active'),
+      async () => subscription('active'),
+    );
+
+    await expect(database.user.findUniqueOrThrow({ where: { id: DEMO_USER_ID } }))
+      .resolves.toMatchObject({ stripeSubscriptionId: null, subscriptionStatus: 'inactive' });
+
+    await database.user.update({
+      where: { id: DEMO_USER_ID },
+      data: { stripeSubscriptionId: 'sub_integration' },
     });
   });
 
