@@ -28,10 +28,39 @@ export const REQUEST_TIMEOUT_MS = {
 const visibleSearchCharacter = /[\p{L}\p{N}\p{P}\p{S}]/u;
 const controlCharacter = /\p{Cc}/u;
 const MAX_SEARCH_QUERY_CHARACTERS = 120;
+const CHECKOUT_POLL_MARKER_KEY = 'foodscope.checkout-initiated-at';
+const CHECKOUT_POLL_MARKER_MAX_AGE_MS = 2 * 60 * 60 * 1000;
 
 function isUsableSearchQuery(value: string) {
   return Array.from(value).length <= MAX_SEARCH_QUERY_CHARACTERS &&
     visibleSearchCharacter.test(value) && !controlCharacter.test(value);
+}
+
+function markCheckoutInitiated() {
+  try {
+    window.sessionStorage.setItem(CHECKOUT_POLL_MARKER_KEY, String(Date.now()));
+  } catch {
+    // Storage can be unavailable; one authoritative return read remains safe.
+  }
+}
+
+function clearCheckoutMarker() {
+  try {
+    window.sessionStorage.removeItem(CHECKOUT_POLL_MARKER_KEY);
+  } catch {
+    // Storage can be unavailable.
+  }
+}
+
+function hasRecentCheckoutMarker() {
+  try {
+    const initiatedAt = Number(window.sessionStorage.getItem(CHECKOUT_POLL_MARKER_KEY));
+    const age = Date.now() - initiatedAt;
+    return Number.isFinite(initiatedAt) && initiatedAt > 0 && age >= 0 &&
+      age <= CHECKOUT_POLL_MARKER_MAX_AGE_MS;
+  } catch {
+    return false;
+  }
 }
 
 class ApiResponseError extends Error {
@@ -254,22 +283,27 @@ export function FoodscopeApp() {
     const currentUrl = new URL(window.location.href);
     const checkoutStatus = currentUrl.searchParams.get('checkout');
     const returnedFromCheckout = checkoutStatus === 'success';
+    const pollAfterCheckout = returnedFromCheckout && hasRecentCheckoutMarker();
     const clearCheckoutStatus = () => {
       const latestUrl = new URL(window.location.href);
       latestUrl.searchParams.delete('checkout');
       window.history.replaceState(null, '', `${latestUrl.pathname}${latestUrl.search}${latestUrl.hash}`);
     };
     if (checkoutStatus === 'cancelled') {
+      clearCheckoutMarker();
       clearCheckoutStatus();
       void Promise.resolve().then(() => {
         if (!controller.signal.aborted) setCheckoutCancelled(true);
       });
     }
 
-    const accountRequest = loadAccount(controller, returnedFromCheckout);
+    const accountRequest = loadAccount(controller, pollAfterCheckout);
     if (returnedFromCheckout) {
       void accountRequest.finally(() => {
-        if (!controller.signal.aborted) clearCheckoutStatus();
+        if (!controller.signal.aborted) {
+          clearCheckoutMarker();
+          clearCheckoutStatus();
+        }
       });
     }
     void Promise.all([accountRequest, refreshRecent()]);
@@ -356,7 +390,13 @@ export function FoodscopeApp() {
       );
       if (!isCheckoutResponse(checkout)) throw new Error('Invalid Checkout response');
       if (controller.signal.aborted) return;
-      window.location.assign(checkout.url);
+      markCheckoutInitiated();
+      try {
+        window.location.assign(checkout.url);
+      } catch (error) {
+        clearCheckoutMarker();
+        throw error;
+      }
     } catch (error) {
       if (controller.signal.aborted) return;
       if (error instanceof ApiResponseError && error.status === 409) {

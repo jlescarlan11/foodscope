@@ -22,12 +22,18 @@ const accountState = (overrides: Partial<{
   checkoutAvailable: true,
   ...overrides,
 });
+const checkoutMarkerKey = 'foodscope.checkout-initiated-at';
+const markCheckoutInitiated = () => window.sessionStorage.setItem(
+  checkoutMarkerKey,
+  String(Date.now()),
+);
 
 describe('Foodscope locale switching', () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
     vi.useRealTimers();
+    window.sessionStorage.clear();
     window.history.replaceState(null, '', '/');
   });
 
@@ -445,6 +451,7 @@ describe('Foodscope locale switching', () => {
   it('rechecks server entitlement after Checkout without trusting the success URL', async () => {
     vi.useFakeTimers();
     window.history.replaceState(null, '', '/?checkout=success');
+    markCheckoutInitiated();
     let accountReads = 0;
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
@@ -470,8 +477,28 @@ describe('Foodscope locale switching', () => {
     expect(window.location.search).toBe('');
   });
 
+  it('does not amplify account reads from an untrusted Checkout success URL', async () => {
+    vi.useFakeTimers();
+    window.history.replaceState(null, '', '/?checkout=success');
+    let accountReads = 0;
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      if (String(input).includes('/api/searches/recent')) {
+        return { ok: true, json: async () => ({ searches: [] }) } as Response;
+      }
+      accountReads += 1;
+      return { ok: true, json: async () => accountState() } as Response;
+    }));
+
+    render(<FoodscopeApp />);
+    await act(async () => vi.advanceTimersByTimeAsync(15_000));
+
+    expect(accountReads).toBe(1);
+    expect(window.location.search).toBe('');
+  });
+
   it('preserves the Checkout success marker when polling is interrupted', async () => {
     window.history.replaceState(null, '', '/?checkout=success');
+    markCheckoutInitiated();
     vi.stubGlobal('fetch', vi.fn((input: string | URL | Request, init?: RequestInit) => {
       if (String(input).includes('/api/searches/recent')) {
         return Promise.resolve({
@@ -489,11 +516,13 @@ describe('Foodscope locale switching', () => {
     expect(window.location.search).toBe('?checkout=success');
     view.unmount();
     expect(window.location.search).toBe('?checkout=success');
+    expect(window.sessionStorage.getItem(checkoutMarkerKey)).not.toBeNull();
   });
 
   it('does not poll repeatedly when Checkout cannot be configured', async () => {
     vi.useFakeTimers();
     window.history.replaceState(null, '', '/?checkout=success');
+    markCheckoutInitiated();
     let accountReads = 0;
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
       if (String(input).includes('/api/searches/recent')) {
@@ -517,6 +546,7 @@ describe('Foodscope locale switching', () => {
   it('does not present an earlier account result after later Checkout polling fails', async () => {
     vi.useFakeTimers();
     window.history.replaceState(null, '', '/?checkout=success');
+    markCheckoutInitiated();
     let accountReads = 0;
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
@@ -540,6 +570,7 @@ describe('Foodscope locale switching', () => {
 
   it('reports a canceled Checkout once without polling or changing account state', async () => {
     window.history.replaceState(null, '', '/?checkout=cancelled');
+    markCheckoutInitiated();
     let accountReads = 0;
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
@@ -558,6 +589,7 @@ describe('Foodscope locale switching', () => {
     expect(await screen.findByRole('button', { name: 'Unlock nutrition' })).toBeInTheDocument();
     expect(accountReads).toBe(1);
     expect(window.location.search).toBe('');
+    expect(window.sessionStorage.getItem(checkoutMarkerKey)).toBeNull();
   });
 
   it('does not offer Checkout before authoritative account state loads', async () => {
@@ -801,6 +833,27 @@ describe('Foodscope locale switching', () => {
 
     view.unmount();
     expect(checkoutSignal?.aborted).toBe(true);
+  });
+
+  it('records a tab-local marker before following a valid Checkout response', async () => {
+    const navigationError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      const body = url.includes('/api/user')
+        ? accountState()
+        : url.includes('/api/searches/recent')
+          ? { searches: [] }
+          : { url: 'https://checkout.stripe.test/session' };
+      return { ok: true, json: async () => body } as Response;
+    }));
+    try {
+      render(<FoodscopeApp />);
+      await userEvent.click(await screen.findByRole('button', { name: 'Unlock nutrition' }));
+
+      expect(Number(window.sessionStorage.getItem(checkoutMarkerKey))).toBeGreaterThan(0);
+    } finally {
+      navigationError.mockRestore();
+    }
   });
 
   it.each([

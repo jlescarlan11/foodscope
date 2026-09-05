@@ -108,7 +108,7 @@ Checkout uses `mode: subscription`, the configured recurring Price, a reused Str
 
 Leave all three Stripe variables empty when not testing billing. The API then reports billing as unavailable and the UI does not offer a Checkout action. When billing is configured, Checkout is offered only for the initial inactive state or after a terminal `canceled`/`incomplete_expired` subscription; other states fail closed without another Stripe call.
 
-The Checkout success redirect is never treated as authorization. On return, the frontend requests `/api/user`; only verified webhook-synchronized MySQL state unlocks nutrition. For a production launch, review tax obligations and configure Stripe Tax only after adding the applicable tax registrations.
+The Checkout success redirect is never treated as authorization. On return, the frontend requests `/api/user`; only verified webhook-synchronized MySQL state unlocks nutrition. Extra bounded webhook-settlement polling requires a recent, tab-local Checkout initiation marker, so an untrusted success URL performs only the normal account read. For a production launch, review tax obligations and configure Stripe Tax only after adding the applicable tax registrations.
 
 ## Internationalization
 
