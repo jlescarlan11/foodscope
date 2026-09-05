@@ -449,7 +449,7 @@ describe('Foodscope API', () => {
   it.each([
     undefined,
     '',
-    `evt_${'x'.repeat(188)}`,
+    'x'.repeat(256),
   ])('acknowledges a verified relevant event with unusable id %p without durable work', async (id) => {
     const setup = harness();
     vi.mocked(setup.dependencies.billing!.constructEvent).mockReturnValueOnce({
@@ -469,6 +469,21 @@ describe('Foodscope API', () => {
     expect(setup.repository.isStripeEventProcessed).not.toHaveBeenCalled();
     expect(setup.repository.processStripeEvent).not.toHaveBeenCalled();
     expect(setup.dependencies.billing!.retrieveSubscription).not.toHaveBeenCalled();
+  });
+
+  it('processes a verified opaque event ID at Stripe\'s documented maximum length', async () => {
+    const setup = harness();
+    const event = { ...setup.event, id: 'x'.repeat(255) } as Stripe.Event;
+    vi.mocked(setup.dependencies.billing!.constructEvent).mockReturnValueOnce(event);
+
+    const response = await request(setup.app)
+      .post('/api/webhooks/stripe')
+      .set('stripe-signature', 'valid')
+      .set('content-type', 'application/json')
+      .send('{}');
+
+    expect(response.status).toBe(200);
+    expect(setup.repository.processStripeEvent).toHaveBeenCalledWith(event, expect.any(Function));
   });
 
   it('returns a retryable failure when current Stripe state cannot be loaded durably', async () => {

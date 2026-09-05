@@ -97,7 +97,7 @@ export function createApp(deps: AppDependencies) {
         res.json({ received: true });
         return;
       }
-      if (typeof event.id !== 'string' || !/^evt_[\x21-\x7e]{1,187}$/.test(event.id)) {
+      if (typeof event.id !== 'string' || event.id.length === 0 || Array.from(event.id).length > 255) {
         res.json({ received: true });
         return;
       }

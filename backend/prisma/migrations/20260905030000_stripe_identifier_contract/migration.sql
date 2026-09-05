@@ -1,0 +1,7 @@
+ALTER TABLE `User`
+  MODIFY `stripeCustomerId` VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL,
+  MODIFY `stripeSubscriptionId` VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL,
+  MODIFY `stripeCheckoutSessionId` VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL;
+
+ALTER TABLE `StripeWebhookEvent`
+  MODIFY `id` VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL;

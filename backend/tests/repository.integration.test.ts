@@ -74,6 +74,28 @@ integration('Repository with MySQL', () => {
     expect(eventCount).toBe(1);
   });
 
+  it('stores maximum-length, case-sensitive Stripe identifiers', async () => {
+    const upperId = `${'e'.repeat(254)}A`;
+    const lowerId = `${'e'.repeat(254)}a`;
+    const ignoredObject = (id: string) => ({
+      id,
+      type: 'checkout.session.completed',
+      data: { object: null },
+    } as unknown as Stripe.Event);
+
+    await subject.processStripeEvent(ignoredObject(upperId));
+    await subject.processStripeEvent(ignoredObject(lowerId));
+    await subject.setStripeCustomer(DEMO_USER_ID, 'c'.repeat(255));
+
+    await expect(database.stripeWebhookEvent.count({
+      where: { id: { in: [upperId, lowerId] } },
+    })).resolves.toBe(2);
+    await expect(database.user.findUniqueOrThrow({ where: { id: DEMO_USER_ID } }))
+      .resolves.toMatchObject({ stripeCustomerId: 'c'.repeat(255) });
+
+    await subject.setStripeCustomer(DEMO_USER_ID, 'cus_integration');
+  });
+
   it('cannot restore stale access when events arrive out of order', async () => {
     const current = subscription('unpaid');
 
