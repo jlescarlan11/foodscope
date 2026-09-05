@@ -1,7 +1,7 @@
 import type Stripe from 'stripe';
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
-import { canStartCheckout, DEMO_USER_ID } from './constants.js';
+import { canStartCheckout, CHECKOUT_ELIGIBLE_STATUSES, DEMO_USER_ID } from './constants.js';
 import { CheckoutUnavailableError } from './errors.js';
 import { prisma } from './prisma.js';
 import type { Locale, } from './constants.js';
@@ -134,7 +134,7 @@ export function createRepository(database: typeof prisma): Repository {
       const claimed = await database.user.updateMany({
         where: {
           id: userId,
-          subscriptionStatus: { notIn: ['active', 'trialing'] },
+          subscriptionStatus: { in: [...CHECKOUT_ELIGIBLE_STATUSES] },
           OR: [
             { stripeCheckoutExpiresAt: null },
             { stripeCheckoutExpiresAt: { lte: now } },

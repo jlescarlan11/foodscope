@@ -17,5 +17,7 @@ export const NUTRITION_RULES = {
 export const isActiveSubscription = (status: string) =>
   status === 'active' || status === 'trialing';
 
+export const CHECKOUT_ELIGIBLE_STATUSES = ['inactive', 'canceled', 'incomplete_expired'] as const;
+
 export const canStartCheckout = (status: string) =>
-  status === 'inactive' || status === 'canceled' || status === 'incomplete_expired';
+  CHECKOUT_ELIGIBLE_STATUSES.some((eligibleStatus) => eligibleStatus === status);

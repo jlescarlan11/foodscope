@@ -2,6 +2,7 @@ import type Stripe from 'stripe';
 import { describe, expect, it, vi } from 'vitest';
 import { createRepository } from '../src/repository.js';
 import { DEMO_USER_ID } from '../src/constants.js';
+import { CheckoutUnavailableError } from '../src/errors.js';
 import { prisma } from '../src/prisma.js';
 
 function subscription(status: Stripe.Subscription.Status) {
@@ -23,6 +24,37 @@ function subscriptionEvent(id = 'evt_stale') {
 }
 
 describe('Stripe webhook repository', () => {
+  it('uses the Checkout eligibility allowlist in the atomic attempt reservation', async () => {
+    const updateMany = vi.fn(async () => ({ count: 0 }));
+    const database = {
+      user: {
+        findUniqueOrThrow: vi.fn()
+          .mockResolvedValueOnce({
+            subscriptionStatus: 'inactive',
+            stripeCheckoutAttemptId: null,
+            stripeCheckoutSessionUrl: null,
+            stripeCheckoutExpiresAt: null,
+          })
+          .mockResolvedValueOnce({
+            subscriptionStatus: 'past_due',
+            stripeCheckoutAttemptId: null,
+            stripeCheckoutSessionUrl: null,
+            stripeCheckoutExpiresAt: null,
+          }),
+        updateMany,
+      },
+    } as unknown as typeof prisma;
+
+    await expect(createRepository(database).getOrCreateCheckoutAttempt(DEMO_USER_ID))
+      .rejects.toBeInstanceOf(CheckoutUnavailableError);
+
+    expect(updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        subscriptionStatus: { in: ['inactive', 'canceled', 'incomplete_expired'] },
+      }),
+    }));
+  });
+
   it('stores the freshly retrieved subscription instead of the delivered stale snapshot', async () => {
     const operations: string[] = [];
     const update = vi.fn(async () => { operations.push('update'); });
