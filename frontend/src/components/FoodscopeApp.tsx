@@ -244,17 +244,25 @@ export function FoodscopeApp() {
     const currentUrl = new URL(window.location.href);
     const checkoutStatus = currentUrl.searchParams.get('checkout');
     const returnedFromCheckout = checkoutStatus === 'success';
-    if (checkoutStatus === 'success' || checkoutStatus === 'cancelled') {
-      currentUrl.searchParams.delete('checkout');
-      window.history.replaceState(null, '', `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`);
-    }
+    const clearCheckoutStatus = () => {
+      const latestUrl = new URL(window.location.href);
+      latestUrl.searchParams.delete('checkout');
+      window.history.replaceState(null, '', `${latestUrl.pathname}${latestUrl.search}${latestUrl.hash}`);
+    };
     if (checkoutStatus === 'cancelled') {
+      clearCheckoutStatus();
       void Promise.resolve().then(() => {
         if (!controller.signal.aborted) setCheckoutCancelled(true);
       });
     }
 
-    void Promise.all([loadAccount(controller, returnedFromCheckout), refreshRecent()]);
+    const accountRequest = loadAccount(controller, returnedFromCheckout);
+    if (returnedFromCheckout) {
+      void accountRequest.finally(() => {
+        if (!controller.signal.aborted) clearCheckoutStatus();
+      });
+    }
+    void Promise.all([accountRequest, refreshRecent()]);
     return () => {
       accountController.current?.abort();
       searchController.current?.abort();

@@ -412,6 +412,27 @@ describe('Foodscope locale switching', () => {
     expect(window.location.search).toBe('');
   });
 
+  it('preserves the Checkout success marker when polling is interrupted', async () => {
+    window.history.replaceState(null, '', '/?checkout=success');
+    vi.stubGlobal('fetch', vi.fn((input: string | URL | Request, init?: RequestInit) => {
+      if (String(input).includes('/api/searches/recent')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ searches: [] }),
+        } as Response);
+      }
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
+      });
+    }));
+
+    const view = render(<FoodscopeApp />);
+
+    expect(window.location.search).toBe('?checkout=success');
+    view.unmount();
+    expect(window.location.search).toBe('?checkout=success');
+  });
+
   it('does not present an earlier account result after later Checkout polling fails', async () => {
     vi.useFakeTimers();
     window.history.replaceState(null, '', '/?checkout=success');
