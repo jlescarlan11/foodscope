@@ -215,7 +215,7 @@ export function createApp(deps: AppDependencies) {
   );
 
   app.use((_req, res) => res.status(404).json({ error: 'Not found' }));
-  app.use((error: unknown, _req: Request, res: Response, next: NextFunction) => {
+  app.use((error: unknown, req: Request, res: Response, next: NextFunction) => {
     void next;
     if (typeof error === 'object' && error !== null && 'type' in error) {
       if (error.type === 'entity.parse.failed') {
@@ -227,7 +227,7 @@ export function createApp(deps: AppDependencies) {
         return;
       }
     }
-    console.error('Unexpected request failure');
+    console.error('Unexpected request failure', { method: req.method, path: req.path });
     res.status(500).json({ error: 'Unexpected server error' });
   });
   return app;

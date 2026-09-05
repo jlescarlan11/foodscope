@@ -261,7 +261,10 @@ describe('Foodscope API', () => {
     expect(response.status).toBe(500);
     expect(response.body).toEqual({ error: 'Unexpected server error' });
     expect(setup.repository.processStripeEvent).toHaveBeenCalledOnce();
-    expect(errorLog).toHaveBeenCalledWith('Unexpected request failure');
+    expect(errorLog).toHaveBeenCalledWith('Unexpected request failure', {
+      method: 'POST',
+      path: '/api/webhooks/stripe',
+    });
     expect(JSON.stringify(errorLog.mock.calls)).not.toContain('sk_test_must_not_be_logged');
     errorLog.mockRestore();
   });
