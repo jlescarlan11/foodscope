@@ -1030,6 +1030,10 @@ describe('Stripe webhook repository', () => {
       subscription: { id: 'sub_untrusted', object: 'invoice' },
       livemode: false, mode: 'subscription', status: 'complete',
     }],
+    ['live-mode expanded Subscription', {
+      subscription: { id: 'sub_untrusted', object: 'subscription', livemode: true },
+      livemode: false, mode: 'subscription', status: 'complete',
+    }],
     ['live-mode Session', { livemode: true, mode: 'subscription', status: 'complete' }],
     ['non-subscription Session', { livemode: false, mode: 'payment', status: 'complete' }],
     ['incomplete Session', { livemode: false, mode: 'subscription', status: 'open' }],

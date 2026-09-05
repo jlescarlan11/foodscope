@@ -67,6 +67,15 @@ function activeCustomerId(value: unknown) {
   return null;
 }
 
+function testSubscriptionId(value: unknown) {
+  if (isStripeOpaqueId(value)) return value;
+  if (
+    isRecord(value) && value.object === 'subscription' &&
+    value.livemode === false && isStripeOpaqueId(value.id)
+  ) return value.id;
+  return null;
+}
+
 function eventObject(event: Stripe.Event): unknown {
   const rawEvent = event as unknown as Record<string, unknown>;
   const data = isRecord(rawEvent.data) ? rawEvent.data : null;
@@ -317,7 +326,7 @@ export function createRepository(database: typeof prisma, stripePriceId?: string
               : null;
             const customerId = isRecord(session) ? activeCustomerId(session.customer) : null;
             const subscriptionId = isRecord(session)
-              ? expandableId(session.subscription, 'subscription')
+              ? testSubscriptionId(session.subscription)
               : null;
             const metadata = isRecord(session) && isRecord(session.metadata) ? session.metadata : null;
             if (
