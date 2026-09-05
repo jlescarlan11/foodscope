@@ -194,12 +194,27 @@ export function createApp(deps: AppDependencies) {
         product,
         nutrition: publicNutrition(product.nutrition),
       }));
-      const currentUser = await deps.repository.getDemoUser();
+      let currentUser = await deps.repository.getDemoUser();
       if (controller.signal.aborted) return;
-      const unlocked = currentUser ? hasNutritionAccess(
+      let unlocked = currentUser ? hasNutritionAccess(
         currentUser.subscriptionStatus,
         currentUser.subscriptionCurrentPeriodEnd,
       ) : false;
+      await deps.repository.saveSearch(
+        user.id,
+        parsed.data.requestId,
+        parsed.data.q,
+        parsed.data.lang,
+      );
+      if (controller.signal.aborted) return;
+      if (unlocked && publicResults.some(({ nutrition }) => nutrition !== undefined)) {
+        currentUser = await deps.repository.getDemoUser();
+        if (controller.signal.aborted) return;
+        unlocked = currentUser ? hasNutritionAccess(
+          currentUser.subscriptionStatus,
+          currentUser.subscriptionCurrentPeriodEnd,
+        ) : false;
+      }
       const products = publicResults.map(({ product, nutrition }) => {
         if (unlocked) return {
           id: product.id,
@@ -217,12 +232,6 @@ export function createApp(deps: AppDependencies) {
           nutritionLocked: nutrition !== undefined,
         };
       });
-      await deps.repository.saveSearch(
-        user.id,
-        parsed.data.requestId,
-        parsed.data.q,
-        parsed.data.lang,
-      );
       res.json({
         products,
         account: currentUser ? publicAccount(currentUser, deps.billing !== null) : null,

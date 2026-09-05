@@ -438,6 +438,27 @@ describe('Foodscope API', () => {
     });
   });
 
+  it('applies entitlement revocation committed while search history is saved', async () => {
+    const setup = harness('active');
+    let historySaved = false;
+    vi.mocked(setup.repository.saveSearch).mockImplementationOnce(async () => {
+      historySaved = true;
+    });
+    vi.mocked(setup.repository.getDemoUser).mockImplementation(async () => ({
+      ...baseUser,
+      subscriptionStatus: historySaved ? 'canceled' : 'active',
+      subscriptionCurrentPeriodEnd: historySaved ? null : new Date('2100-01-01T00:00:00Z'),
+    }));
+
+    const response = await search(setup.app, 'spread', 'en');
+
+    expect(response.status).toBe(200);
+    expect(setup.repository.saveSearch).toHaveBeenCalledOnce();
+    expect(response.body.products[0]).toMatchObject({ nutritionLocked: true });
+    expect(response.body.products[0]).not.toHaveProperty('nutrition');
+    expect(response.body.account).toMatchObject({ nutritionAccess: false });
+  });
+
   it('reports missing nutrition and still synchronizes authoritative account state', async () => {
     const setup = harness();
     vi.mocked(setup.dependencies.products.search).mockResolvedValueOnce([{
