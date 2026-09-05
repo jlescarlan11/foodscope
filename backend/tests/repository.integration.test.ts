@@ -119,6 +119,22 @@ integration('Repository with MySQL', () => {
       .resolves.toMatchObject({ subscriptionStatus: 'unknown' });
   });
 
+  it('durably revokes access when an active subscription period is missing', async () => {
+    const current = subscription('active') as unknown as Record<string, unknown>;
+    current.items = { data: [] };
+
+    await subject.processStripeEvent(
+      event('evt_missing_period', 'active'),
+      async () => current as unknown as Stripe.Subscription,
+    );
+
+    await expect(database.user.findUniqueOrThrow({ where: { id: DEMO_USER_ID } }))
+      .resolves.toMatchObject({
+        subscriptionStatus: 'unknown',
+        subscriptionCurrentPeriodEnd: null,
+      });
+  });
+
   it('serializes current-state reads so a delayed active read cannot overwrite cancellation', async () => {
     let releaseFirst!: () => void;
     let firstReadStarted!: () => void;

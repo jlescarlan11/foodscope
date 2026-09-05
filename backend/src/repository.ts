@@ -5,6 +5,7 @@ import {
   canStartCheckout,
   CHECKOUT_ELIGIBLE_STATUSES,
   DEMO_USER_ID,
+  isActiveSubscription,
   normalizeStripeSubscriptionStatus,
 } from './constants.js';
 import { CheckoutUnavailableError } from './errors.js';
@@ -13,9 +14,17 @@ import type { Locale, } from './constants.js';
 import type { Repository } from './types.js';
 
 function subscriptionPeriodEnd(subscription: Stripe.Subscription) {
-  const itemEnds = subscription.items.data.map((item) => item.current_period_end).filter(Boolean);
-  const timestamp = itemEnds.length ? Math.max(...itemEnds) : undefined;
-  return timestamp ? new Date(timestamp * 1000) : null;
+  const items = isRecord(subscription.items) && Array.isArray(subscription.items.data)
+    ? subscription.items.data
+    : [];
+  const itemEnds = items.flatMap((item) =>
+    isRecord(item) && typeof item.current_period_end === 'number' &&
+      Number.isFinite(item.current_period_end) && item.current_period_end > 0
+      ? [item.current_period_end]
+      : []);
+  if (itemEnds.length === 0) return null;
+  const end = new Date(Math.max(...itemEnds) * 1000);
+  return Number.isFinite(end.getTime()) ? end : null;
 }
 
 const CHECKOUT_ATTEMPT_MS = 31 * 60 * 1000;
@@ -239,9 +248,13 @@ export function createRepository(database: typeof prisma): Repository {
               user.stripeSubscriptionId === currentSubscription.id ||
               isCheckoutHandoff
             )) {
-              const subscriptionStatus = normalizeStripeSubscriptionStatus(
+              const normalizedStatus = normalizeStripeSubscriptionStatus(
                 currentSubscription.status,
               );
+              const periodEnd = subscriptionPeriodEnd(currentSubscription);
+              const subscriptionStatus = isActiveSubscription(normalizedStatus) && !periodEnd
+                ? 'unknown'
+                : normalizedStatus;
               const shouldClearCheckoutAttempt = isCheckoutHandoff ||
                 !canStartCheckout(subscriptionStatus);
               const customerId = typeof currentSubscription.customer === 'string'
@@ -253,7 +266,7 @@ export function createRepository(database: typeof prisma): Repository {
                   stripeCustomerId: customerId,
                   stripeSubscriptionId: currentSubscription.id,
                   subscriptionStatus,
-                  subscriptionCurrentPeriodEnd: subscriptionPeriodEnd(currentSubscription),
+                  subscriptionCurrentPeriodEnd: periodEnd,
                   ...(shouldClearCheckoutAttempt ? {
                     stripeCheckoutAttemptId: null,
                     stripeCheckoutSessionId: null,

@@ -253,6 +253,45 @@ describe('Stripe webhook repository', () => {
     },
   );
 
+  it.each([
+    undefined,
+    { data: [] },
+    { data: [{ current_period_end: Number.POSITIVE_INFINITY }] },
+  ])('fails closed when an active subscription has malformed items %p', async (items) => {
+    const update = vi.fn();
+    const tx = {
+      stripeWebhookEvent: { create: vi.fn() },
+      $queryRaw: vi.fn(async () => [{ id: DEMO_USER_ID }]),
+      user: {
+        update,
+        findUnique: vi.fn(async () => ({
+          id: DEMO_USER_ID,
+          stripeCustomerId: 'cus_demo',
+          stripeSubscriptionId: 'sub_current',
+          stripeCheckoutAttemptId: null,
+        })),
+      },
+    };
+    const database = {
+      $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<void>) => callback(tx)),
+      stripeWebhookEvent: { findUnique: vi.fn() },
+    } as unknown as typeof prisma;
+    const current = subscription('active') as unknown as Record<string, unknown>;
+    current.items = items;
+
+    await createRepository(database).processStripeEvent(
+      subscriptionEvent('evt_malformed_period'),
+      async () => current as unknown as Stripe.Subscription,
+    );
+
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        subscriptionStatus: 'unknown',
+        subscriptionCurrentPeriodEnd: null,
+      }),
+    }));
+  });
+
   it('does not call Stripe for a subscription event that cannot map to the demo user', async () => {
     const retrieveSubscription = vi.fn(async () => subscription('active'));
     const tx = {
