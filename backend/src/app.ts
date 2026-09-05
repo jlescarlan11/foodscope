@@ -143,7 +143,7 @@ export function createApp(deps: AppDependencies) {
           name: product.name,
           brand: product.brand,
           image: product.image,
-          nutritionLocked: true,
+          nutritionLocked: product.nutrition !== undefined,
         };
       });
       res.json({ products });

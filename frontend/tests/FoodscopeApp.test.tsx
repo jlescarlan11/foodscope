@@ -146,4 +146,27 @@ describe('Foodscope locale switching', () => {
 
     expect(screen.queryByRole('button', { name: 'Oats' })).not.toBeInTheDocument();
   });
+
+  it('shows unavailable rather than an upgrade promise when nutrition is missing', async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      const body = url.includes('/api/user')
+        ? { nutritionAccess: false }
+        : url.includes('/api/searches/recent')
+          ? { searches: [] }
+          : { products: [{
+              id: 'missing', name: 'Missing nutrition', brand: null, image: null,
+              nutritionLocked: false,
+            }] };
+      return { ok: true, json: async () => body } as Response;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<FoodscopeApp />);
+
+    await userEvent.type(screen.getByLabelText('Search products'), 'missing');
+    await userEvent.click(screen.getByRole('button', { name: /^Search/ }));
+
+    expect(await screen.findByText('Unavailable')).toBeInTheDocument();
+    expect(screen.queryByText('Nutrition details are locked')).not.toBeInTheDocument();
+  });
 });

@@ -67,6 +67,25 @@ describe('Foodscope API', () => {
     expect(response.body.products[0]).not.toHaveProperty('nutrition');
   });
 
+  it('reports missing nutrition as unavailable instead of claiming it is locked', async () => {
+    const setup = harness();
+    vi.mocked(setup.dependencies.products.search).mockResolvedValueOnce([{
+      id: 'missing', name: 'No nutrition supplied', brand: null, image: null,
+    }]);
+
+    const response = await request(setup.app).get('/api/products/search?q=missing&lang=en');
+
+    expect(response.status).toBe(200);
+    expect(response.body.products[0]).toEqual({
+      id: 'missing',
+      name: 'No nutrition supplied',
+      brand: null,
+      image: null,
+      nutritionLocked: false,
+    });
+    expect(response.body.products[0]).not.toHaveProperty('nutrition');
+  });
+
   it('sends only available normalized nutrition to an active user', async () => {
     const setup = harness('active');
     vi.mocked(setup.dependencies.products.search).mockResolvedValueOnce([{
