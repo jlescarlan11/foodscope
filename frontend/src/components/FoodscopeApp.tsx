@@ -74,7 +74,8 @@ function isUserState(value: unknown): value is UserState {
     && typeof candidate.subscriptionStatus === 'string'
     && (candidate.subscriptionCurrentPeriodEnd === null || typeof candidate.subscriptionCurrentPeriodEnd === 'string')
     && typeof candidate.nutritionAccess === 'boolean'
-    && typeof candidate.billingAvailable === 'boolean';
+    && typeof candidate.billingAvailable === 'boolean'
+    && typeof candidate.checkoutAvailable === 'boolean';
 }
 
 function ProductCard({ product, messages }: { product: Product; messages: Messages }) {
@@ -296,8 +297,9 @@ export function FoodscopeApp() {
           <div className="plan-top"><span className="spark" aria-hidden="true">✣</span><div><p>{messages.plan}</p><strong>{accountState === 'loading' ? messages.loading : accountState === 'error' ? messages.accountUnavailable : user?.nutritionAccess ? messages.active : messages.inactive}</strong></div><span aria-hidden="true" className={`status-dot ${accountState === 'ready' && user?.nutritionAccess ? 'on' : ''}`} /></div>
           <p>{messages.subscriptionBody}</p>
           {accountState === 'error' && <button onClick={retryAccount}>{messages.retryAccount}<span aria-hidden="true">↻</span></button>}
-          {accountState === 'ready' && !user?.nutritionAccess && user?.billingAvailable === true && <button onClick={() => void subscribe()} disabled={subscribing}>{subscribing ? messages.redirecting : messages.subscribe}<span aria-hidden="true">↗</span></button>}
+          {accountState === 'ready' && !user?.nutritionAccess && user?.billingAvailable && user.checkoutAvailable && <button onClick={() => void subscribe()} disabled={subscribing}>{subscribing ? messages.redirecting : messages.subscribe}<span aria-hidden="true">↗</span></button>}
           {accountState === 'ready' && !user?.nutritionAccess && user?.billingAvailable === false && <p className="plan-note">{messages.checkoutUnavailable}</p>}
+          {accountState === 'ready' && !user?.nutritionAccess && user?.billingAvailable && !user.checkoutAvailable && <p className="plan-note">{messages.checkoutBlocked}</p>}
           {checkoutError && <p className="plan-alert" role="alert">{messages.checkoutError}</p>}
           <small>{messages.monthly}</small>
         </aside>

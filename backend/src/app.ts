@@ -4,9 +4,9 @@ import helmet from 'helmet';
 import type Stripe from 'stripe';
 import { z } from 'zod';
 import type { AppConfig } from './config.js';
-import { isActiveSubscription, NUTRITION_RULES, SUPPORTED_LOCALES } from './constants.js';
+import { canStartCheckout, isActiveSubscription, NUTRITION_RULES, SUPPORTED_LOCALES } from './constants.js';
 import { ProductProviderRateLimitError } from './open-food-facts.js';
-import { NutritionAccessAlreadyActiveError } from './errors.js';
+import { CheckoutUnavailableError } from './errors.js';
 import type { BillingProvider, Nutrition, ProductProvider, Repository } from './types.js';
 
 export type AppDependencies = {
@@ -127,6 +127,7 @@ export function createApp(deps: AppDependencies) {
         subscriptionCurrentPeriodEnd: user.subscriptionCurrentPeriodEnd,
         nutritionAccess: isActiveSubscription(user.subscriptionStatus),
         billingAvailable: deps.billing !== null,
+        checkoutAvailable: deps.billing !== null && canStartCheckout(user.subscriptionStatus),
       });
     }),
   );
@@ -223,15 +224,15 @@ export function createApp(deps: AppDependencies) {
         res.status(503).json({ error: 'Demo user is not initialized' });
         return;
       }
-      if (isActiveSubscription(user.subscriptionStatus)) {
-        res.status(409).json({ error: 'The demo user already has nutrition access' });
+      if (!canStartCheckout(user.subscriptionStatus)) {
+        res.status(409).json({ error: 'Checkout is unavailable for the current subscription state' });
         return;
       }
       try {
         res.status(201).json(await deps.billing.createCheckout(user));
       } catch (error) {
-        if (error instanceof NutritionAccessAlreadyActiveError) {
-          res.status(409).json({ error: 'The demo user already has nutrition access' });
+        if (error instanceof CheckoutUnavailableError) {
+          res.status(409).json({ error: 'Checkout is unavailable for the current subscription state' });
           return;
         }
         res.status(502).json({ error: 'Unable to start Checkout' });

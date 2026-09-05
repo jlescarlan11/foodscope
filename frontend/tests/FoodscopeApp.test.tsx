@@ -16,12 +16,14 @@ const accountState = (overrides: Partial<{
   subscriptionCurrentPeriodEnd: string | null;
   nutritionAccess: boolean;
   billingAvailable: boolean;
+  checkoutAvailable: boolean;
 }> = {}) => ({
   email: 'demo@foodscope.local',
   subscriptionStatus: 'inactive',
   subscriptionCurrentPeriodEnd: null,
   nutritionAccess: false,
   billingAvailable: true,
+  checkoutAvailable: true,
   ...overrides,
 });
 
@@ -194,7 +196,7 @@ describe('Foodscope locale switching', () => {
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
       const body = url.includes('/api/user')
-        ? accountState({ nutritionAccess: true, subscriptionStatus: 'active' })
+        ? accountState({ nutritionAccess: true, subscriptionStatus: 'active', checkoutAvailable: false })
         : url.includes('/api/searches/recent')
           ? { searches: [] }
           : { products: [{
@@ -228,6 +230,7 @@ describe('Foodscope locale switching', () => {
         json: async () => accountState({
           nutritionAccess: accountReads >= 3,
           subscriptionStatus: accountReads >= 3 ? 'active' : 'inactive',
+          checkoutAvailable: accountReads < 3,
         }),
       } as Response;
     });
@@ -292,7 +295,7 @@ describe('Foodscope locale switching', () => {
       }
       accountReads += 1;
       if (accountReads === 1) throw new Error('database unavailable');
-      return { ok: true, json: async () => accountState({ nutritionAccess: true, subscriptionStatus: 'active' }) } as Response;
+      return { ok: true, json: async () => accountState({ nutritionAccess: true, subscriptionStatus: 'active', checkoutAvailable: false }) } as Response;
     }));
 
     render(<FoodscopeApp />);
@@ -307,7 +310,7 @@ describe('Foodscope locale switching', () => {
   it('does not offer a Checkout action when optional billing is unavailable', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
       const body = String(input).includes('/api/user')
-        ? accountState({ billingAvailable: false })
+        ? accountState({ billingAvailable: false, checkoutAvailable: false })
         : { searches: [] };
       return { ok: true, json: async () => body } as Response;
     }));
@@ -315,6 +318,20 @@ describe('Foodscope locale switching', () => {
     render(<FoodscopeApp />);
 
     expect(await screen.findByText('Stripe test Checkout is not configured.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Unlock nutrition' })).not.toBeInTheDocument();
+  });
+
+  it('does not offer a doomed Checkout action for an unpaid subscription', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const body = String(input).includes('/api/user')
+        ? accountState({ subscriptionStatus: 'unpaid', checkoutAvailable: false })
+        : { searches: [] };
+      return { ok: true, json: async () => body } as Response;
+    }));
+
+    render(<FoodscopeApp />);
+
+    expect(await screen.findByText('Checkout is unavailable for the current plan status.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Unlock nutrition' })).not.toBeInTheDocument();
   });
 
@@ -419,6 +436,7 @@ describe('Foodscope locale switching', () => {
           json: async () => accountState({
             nutritionAccess: accountReads > 1,
             subscriptionStatus: accountReads > 1 ? 'active' : 'inactive',
+            checkoutAvailable: accountReads === 1,
           }),
         } as Response;
       }

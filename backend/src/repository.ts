@@ -1,8 +1,8 @@
 import type Stripe from 'stripe';
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
-import { DEMO_USER_ID } from './constants.js';
-import { NutritionAccessAlreadyActiveError } from './errors.js';
+import { canStartCheckout, DEMO_USER_ID } from './constants.js';
+import { CheckoutUnavailableError } from './errors.js';
 import { prisma } from './prisma.js';
 import type { Locale, } from './constants.js';
 import type { Repository } from './types.js';
@@ -116,8 +116,8 @@ export function createRepository(database: typeof prisma): Repository {
         },
       });
       const now = new Date();
-      if (existing.subscriptionStatus === 'active' || existing.subscriptionStatus === 'trialing') {
-        throw new NutritionAccessAlreadyActiveError();
+      if (!canStartCheckout(existing.subscriptionStatus)) {
+        throw new CheckoutUnavailableError();
       }
       if (
         existing.stripeCheckoutAttemptId && existing.stripeCheckoutExpiresAt &&
@@ -158,8 +158,8 @@ export function createRepository(database: typeof prisma): Repository {
           stripeCheckoutExpiresAt: true,
         },
       });
-      if (winner.subscriptionStatus === 'active' || winner.subscriptionStatus === 'trialing') {
-        throw new NutritionAccessAlreadyActiveError();
+      if (!canStartCheckout(winner.subscriptionStatus)) {
+        throw new CheckoutUnavailableError();
       }
       if (!winner.stripeCheckoutAttemptId || !winner.stripeCheckoutExpiresAt) {
         throw new Error('Unable to reserve Checkout attempt');

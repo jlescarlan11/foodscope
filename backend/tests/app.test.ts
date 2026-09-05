@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp, type AppDependencies } from '../src/app.js';
 import { DEMO_USER_ID, type Locale } from '../src/constants.js';
 import { ProductProviderRateLimitError } from '../src/open-food-facts.js';
-import { NutritionAccessAlreadyActiveError } from '../src/errors.js';
+import { CheckoutUnavailableError } from '../src/errors.js';
 import type { DemoUser, RecentSearch, Repository } from '../src/types.js';
 
 const baseUser: DemoUser = {
@@ -144,14 +144,16 @@ describe('Foodscope API', () => {
   it('returns a conflict when entitlement activates during Checkout creation', async () => {
     const setup = harness();
     vi.mocked(setup.dependencies.billing!.createCheckout)
-      .mockRejectedValueOnce(new NutritionAccessAlreadyActiveError());
+      .mockRejectedValueOnce(new CheckoutUnavailableError());
 
     const response = await request(setup.app)
       .post('/api/billing/checkout-session')
       .set('origin', setup.dependencies.config.frontendUrl);
 
     expect(response.status).toBe(409);
-    expect(response.body).toEqual({ error: 'The demo user already has nutrition access' });
+    expect(response.body).toEqual({
+      error: 'Checkout is unavailable for the current subscription state',
+    });
   });
 
   it('never sends nutrition to an inactive user', async () => {
@@ -211,6 +213,7 @@ describe('Foodscope API', () => {
     expect(response.status).toBe(200);
     expect(response.body.nutritionAccess).toBe(true);
     expect(response.body.billingAvailable).toBe(true);
+    expect(response.body.checkoutAvailable).toBe(false);
     expect(response.headers['cache-control']).toBe('no-store');
   });
 
@@ -221,8 +224,44 @@ describe('Foodscope API', () => {
     const response = await request(createApp(setup.dependencies)).get('/api/user');
 
     expect(response.status).toBe(200);
-    expect(response.body).toMatchObject({ nutritionAccess: false, billingAvailable: false });
+    expect(response.body).toMatchObject({
+      nutritionAccess: false,
+      billingAvailable: false,
+      checkoutAvailable: false,
+    });
   });
+
+  it.each(['active', 'trialing', 'past_due', 'unpaid', 'paused', 'incomplete', 'unknown'])(
+    'rejects Checkout without provider work for non-eligible %s state',
+    async (status) => {
+      const setup = harness(status);
+
+      const account = await request(setup.app).get('/api/user');
+      const response = await request(setup.app)
+        .post('/api/billing/checkout-session')
+        .set('origin', setup.dependencies.config.frontendUrl);
+
+      expect(account.body.checkoutAvailable).toBe(false);
+      expect(response.status).toBe(409);
+      expect(setup.dependencies.billing!.createCheckout).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['inactive', 'canceled', 'incomplete_expired'])(
+    'offers Checkout recovery for eligible %s state',
+    async (status) => {
+      const setup = harness(status);
+
+      const account = await request(setup.app).get('/api/user');
+      const response = await request(setup.app)
+        .post('/api/billing/checkout-session')
+        .set('origin', setup.dependencies.config.frontendUrl);
+
+      expect(account.body.checkoutAvailable).toBe(true);
+      expect(response.status).toBe(201);
+      expect(setup.dependencies.billing!.createCheckout).toHaveBeenCalledOnce();
+    },
+  );
 
   it('fails closed when nutrition access is revoked during an upstream search', async () => {
     const setup = harness('active');

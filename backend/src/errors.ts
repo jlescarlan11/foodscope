@@ -1,5 +1,5 @@
-export class NutritionAccessAlreadyActiveError extends Error {
+export class CheckoutUnavailableError extends Error {
   constructor() {
-    super('The demo user already has nutrition access');
+    super('Checkout is unavailable for the current subscription state');
   }
 }
