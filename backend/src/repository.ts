@@ -14,15 +14,22 @@ function subscriptionPeriodEnd(subscription: Stripe.Subscription) {
 
 const CHECKOUT_ATTEMPT_MS = 31 * 60 * 1000;
 
-async function resolveUserIdFromSubscription(
+async function resolveUserFromSubscription(
   database: Pick<Prisma.TransactionClient, 'user'>,
   subscription: Stripe.Subscription,
 ) {
   const metadataUserId = subscription.metadata.demoUserId;
-  if (metadataUserId === DEMO_USER_ID) return DEMO_USER_ID;
   const customerId = typeof subscription.customer === 'string' ? subscription.customer : subscription.customer.id;
-  const user = await database.user.findUnique({ where: { stripeCustomerId: customerId }, select: { id: true } });
-  return user?.id ?? null;
+  const select = {
+    id: true,
+    stripeCustomerId: true,
+    stripeSubscriptionId: true,
+    stripeCheckoutAttemptId: true,
+  } as const;
+  const user = metadataUserId === DEMO_USER_ID
+    ? await database.user.findUnique({ where: { id: DEMO_USER_ID }, select })
+    : await database.user.findUnique({ where: { stripeCustomerId: customerId }, select });
+  return user?.stripeCustomerId === customerId ? user : null;
 }
 
 export function createRepository(database: typeof prisma): Repository {
@@ -122,34 +129,60 @@ export function createRepository(database: typeof prisma): Repository {
         await database.$transaction(async (tx: Prisma.TransactionClient) => {
           await tx.stripeWebhookEvent.create({ data: { id: event.id, type: event.type } });
 
-        if (
-          event.type === 'customer.subscription.created' ||
-          event.type === 'customer.subscription.updated' ||
-          event.type === 'customer.subscription.deleted'
-        ) {
-          if (!currentSubscription || currentSubscription.id !== event.data.object.id) {
-            throw new Error('Current Stripe subscription is required');
+          if (event.type === 'checkout.session.completed') {
+            const session = event.data.object;
+            const customerId = typeof session.customer === 'string' ? session.customer : session.customer?.id;
+            const subscriptionId = typeof session.subscription === 'string'
+              ? session.subscription
+              : session.subscription?.id;
+            if (session.metadata?.demoUserId === DEMO_USER_ID && customerId && subscriptionId) {
+              await tx.user.updateMany({
+                where: {
+                  id: DEMO_USER_ID,
+                  stripeCustomerId: customerId,
+                  stripeCheckoutSessionId: session.id,
+                },
+                data: { stripeSubscriptionId: subscriptionId },
+              });
+            }
           }
-          const userId = await resolveUserIdFromSubscription(tx, currentSubscription);
-          if (userId) {
-            const customerId = typeof currentSubscription.customer === 'string'
-              ? currentSubscription.customer
-              : currentSubscription.customer.id;
-            await tx.user.update({
-              where: { id: userId },
-              data: {
-                stripeCustomerId: customerId,
-                stripeSubscriptionId: currentSubscription.id,
-                subscriptionStatus: currentSubscription.status,
-                subscriptionCurrentPeriodEnd: subscriptionPeriodEnd(currentSubscription),
-                stripeCheckoutAttemptId: null,
-                stripeCheckoutSessionId: null,
-                stripeCheckoutSessionUrl: null,
-                stripeCheckoutExpiresAt: null,
-              },
-            });
+
+          if (
+            event.type === 'customer.subscription.created' ||
+            event.type === 'customer.subscription.updated' ||
+            event.type === 'customer.subscription.deleted'
+          ) {
+            if (!currentSubscription || currentSubscription.id !== event.data.object.id) {
+              throw new Error('Current Stripe subscription is required');
+            }
+            const user = await resolveUserFromSubscription(tx, currentSubscription);
+            const isCheckoutHandoff = Boolean(
+              user?.stripeCheckoutAttemptId &&
+              currentSubscription.metadata.checkoutAttemptId === user.stripeCheckoutAttemptId
+            );
+            if (user && (
+              user.stripeSubscriptionId === null ||
+              user.stripeSubscriptionId === currentSubscription.id ||
+              isCheckoutHandoff
+            )) {
+              const customerId = typeof currentSubscription.customer === 'string'
+                ? currentSubscription.customer
+                : currentSubscription.customer.id;
+              await tx.user.update({
+                where: { id: user.id },
+                data: {
+                  stripeCustomerId: customerId,
+                  stripeSubscriptionId: currentSubscription.id,
+                  subscriptionStatus: currentSubscription.status,
+                  subscriptionCurrentPeriodEnd: subscriptionPeriodEnd(currentSubscription),
+                  stripeCheckoutAttemptId: null,
+                  stripeCheckoutSessionId: null,
+                  stripeCheckoutSessionUrl: null,
+                  stripeCheckoutExpiresAt: null,
+                },
+              });
+            }
           }
-        }
         });
       } catch (error) {
         if (

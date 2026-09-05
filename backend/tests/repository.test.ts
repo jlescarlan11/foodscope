@@ -28,7 +28,12 @@ describe('Stripe webhook repository', () => {
     const update = vi.fn(async () => { operations.push('update'); });
     const tx = {
       stripeWebhookEvent: { create: vi.fn(async () => { operations.push('event'); }) },
-      user: { update, findUnique: vi.fn() },
+      user: { update, findUnique: vi.fn(async () => ({
+        id: DEMO_USER_ID,
+        stripeCustomerId: 'cus_demo',
+        stripeSubscriptionId: 'sub_current',
+        stripeCheckoutAttemptId: null,
+      })) },
     };
     const database = {
       $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<void>) => callback(tx)),
@@ -44,6 +49,59 @@ describe('Stripe webhook repository', () => {
         stripeSubscriptionId: 'sub_current',
         subscriptionStatus: 'canceled',
       }),
+    }));
+  });
+
+  it('ignores a different subscription even when it carries demo-user metadata', async () => {
+    const update = vi.fn();
+    const tx = {
+      stripeWebhookEvent: { create: vi.fn() },
+      user: {
+        update,
+        findUnique: vi.fn(async () => ({
+          id: DEMO_USER_ID,
+          stripeCustomerId: 'cus_demo',
+          stripeSubscriptionId: 'sub_authoritative',
+          stripeCheckoutAttemptId: null,
+        })),
+      },
+    };
+    const database = {
+      $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<void>) => callback(tx)),
+      stripeWebhookEvent: { findUnique: vi.fn() },
+    } as unknown as typeof prisma;
+
+    await createRepository(database).processStripeEvent(subscriptionEvent(), subscription('active'));
+
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('accepts a new subscription only when it matches the durable Checkout attempt', async () => {
+    const update = vi.fn();
+    const tx = {
+      stripeWebhookEvent: { create: vi.fn() },
+      user: {
+        update,
+        findUnique: vi.fn(async () => ({
+          id: DEMO_USER_ID,
+          stripeCustomerId: 'cus_demo',
+          stripeSubscriptionId: 'sub_previous',
+          stripeCheckoutAttemptId: 'attempt_current',
+        })),
+      },
+    };
+    const database = {
+      $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<void>) => callback(tx)),
+      stripeWebhookEvent: { findUnique: vi.fn() },
+    } as unknown as typeof prisma;
+    const current = subscription('active');
+    current.metadata.checkoutAttemptId = 'attempt_current';
+
+    await createRepository(database).processStripeEvent(subscriptionEvent(), current);
+
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: DEMO_USER_ID },
+      data: expect.objectContaining({ stripeSubscriptionId: 'sub_current', subscriptionStatus: 'active' }),
     }));
   });
 

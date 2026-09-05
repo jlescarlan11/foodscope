@@ -42,7 +42,7 @@ export class StripeBillingProvider implements BillingProvider {
       customer: customerId,
       line_items: [{ price: this.config.stripePriceId, quantity: 1 }],
       metadata: { demoUserId: user.id },
-      subscription_data: { metadata: { demoUserId: user.id } },
+      subscription_data: { metadata: { demoUserId: user.id, checkoutAttemptId: attempt.id } },
       success_url: `${this.config.frontendUrl}/?checkout=success`,
       cancel_url: `${this.config.frontendUrl}/?checkout=cancelled`,
       expires_at: Math.floor(attempt.expiresAt.getTime() / 1000),

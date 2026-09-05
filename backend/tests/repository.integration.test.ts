@@ -22,7 +22,20 @@ function event(id: string, status: Stripe.Subscription.Status) {
     id,
     type: 'customer.subscription.updated',
     data: { object: subscription(status) },
-  } as Stripe.Event;
+  } as unknown as Stripe.Event;
+}
+
+function checkoutEvent(id: string, sessionId: string) {
+  return {
+    id,
+    type: 'checkout.session.completed',
+    data: { object: {
+      id: sessionId,
+      customer: 'cus_integration',
+      subscription: 'sub_checkout',
+      metadata: { demoUserId: DEMO_USER_ID },
+    } },
+  } as unknown as Stripe.Event;
 }
 
 integration('Stripe webhook repository with MySQL', () => {
@@ -31,7 +44,12 @@ integration('Stripe webhook repository with MySQL', () => {
 
   beforeAll(async () => {
     await database.user.create({
-      data: { id: DEMO_USER_ID, email: DEMO_USER_EMAIL, subscriptionStatus: 'inactive' },
+      data: {
+        id: DEMO_USER_ID,
+        email: DEMO_USER_EMAIL,
+        stripeCustomerId: 'cus_integration',
+        subscriptionStatus: 'inactive',
+      },
     });
   });
 
@@ -81,6 +99,14 @@ integration('Stripe webhook repository with MySQL', () => {
       ...first,
       sessionUrl: 'https://checkout.stripe.test/integration',
     });
+
+    await subject.processStripeEvent(checkoutEvent('evt_wrong_checkout', 'cs_test_other'));
+    await expect(database.user.findUniqueOrThrow({ where: { id: DEMO_USER_ID } }))
+      .resolves.toMatchObject({ stripeSubscriptionId: 'sub_integration' });
+
+    await subject.processStripeEvent(checkoutEvent('evt_current_checkout', 'cs_test_integration'));
+    await expect(database.user.findUniqueOrThrow({ where: { id: DEMO_USER_ID } }))
+      .resolves.toMatchObject({ stripeSubscriptionId: 'sub_checkout' });
 
     await database.user.update({
       where: { id: DEMO_USER_ID },

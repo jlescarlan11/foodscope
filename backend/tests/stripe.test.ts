@@ -60,6 +60,7 @@ describe('Stripe Checkout creation', () => {
         customer: 'cus_test',
         expires_at: Math.floor(setup.attempt.expiresAt.getTime() / 1000),
         integration_identifier: expect.stringMatching(/^foodscope_[a-z]{8}$/),
+        subscription_data: { metadata: { demoUserId: user.id, checkoutAttemptId: setup.attempt.id } },
       }),
       { idempotencyKey: `foodscope-checkout-${setup.attempt.id}` },
     );
