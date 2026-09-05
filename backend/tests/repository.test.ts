@@ -136,10 +136,9 @@ describe('Stripe webhook repository', () => {
       stripeWebhookEvent: { findUnique: vi.fn() },
     } as unknown as typeof prisma;
 
-    await createRepository(database).processStripeEvent(
-      subscriptionEvent(),
-      async () => subscription('canceled'),
-    );
+    const current = subscription('canceled');
+    current.metadata.demoUserId = 'unexpected-user';
+    await createRepository(database).processStripeEvent(subscriptionEvent(), async () => current);
 
     expect(operations).toEqual(['event', 'lock', 'update']);
     expect(database.$transaction).toHaveBeenCalledWith(expect.any(Function), {
@@ -152,6 +151,9 @@ describe('Stripe webhook repository', () => {
         stripeSubscriptionId: 'sub_current',
         subscriptionStatus: 'canceled',
       }),
+    }));
+    expect(tx.user.findUnique).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: DEMO_USER_ID },
     }));
   });
 
@@ -367,9 +369,15 @@ describe('Stripe webhook repository', () => {
       stripeWebhookEvent: { findUnique: vi.fn() },
     } as unknown as typeof prisma;
 
-    await createRepository(database).processStripeEvent(subscriptionEvent(), retrieveSubscription);
+    const delivered = subscriptionEvent();
+    (delivered.data.object as Stripe.Subscription).metadata.demoUserId = 'unexpected-user';
+    await createRepository(database).processStripeEvent(delivered, retrieveSubscription);
 
     expect(retrieveSubscription).not.toHaveBeenCalled();
+    const lockQuery = (tx.$queryRaw.mock.calls as unknown[][])[0]?.[0] as {
+      values: unknown[];
+    };
+    expect(lockQuery.values).toEqual([DEMO_USER_ID, 'cus_demo']);
     expect(tx.user.findUnique).not.toHaveBeenCalled();
     expect(tx.user.update).not.toHaveBeenCalled();
   });

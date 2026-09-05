@@ -1,6 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import type Stripe from 'stripe';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { DEMO_USER_EMAIL, DEMO_USER_ID } from '../src/constants.js';
 import { createRepository } from '../src/repository.js';
 import { CheckoutUnavailableError } from '../src/errors.js';
@@ -85,6 +85,43 @@ integration('Repository with MySQL', () => {
     ]);
     expect(storedUser.subscriptionStatus).toBe('canceled');
     expect(eventCount).toBe(1);
+  });
+
+  it('never mutates a non-demo user through customer fallback', async () => {
+    const otherUserId = '00000000-0000-4000-8000-000000000099';
+    await database.stripeWebhookEvent.deleteMany({ where: { id: 'evt_other_user' } });
+    await database.user.upsert({
+      where: { id: otherUserId },
+      update: {
+        subscriptionStatus: 'inactive',
+        stripeCustomerId: 'cus_other',
+        stripeSubscriptionId: 'sub_other',
+      },
+      create: {
+        id: otherUserId,
+        email: 'other@foodscope.local',
+        subscriptionStatus: 'inactive',
+        stripeCustomerId: 'cus_other',
+        stripeSubscriptionId: 'sub_other',
+      },
+    });
+    const otherSubscription = {
+      ...subscription('active'),
+      id: 'sub_other',
+      customer: 'cus_other',
+      metadata: { demoUserId: otherUserId },
+    } as Stripe.Subscription;
+    const retrieveSubscription = vi.fn(async () => otherSubscription);
+
+    await subject.processStripeEvent({
+      id: 'evt_other_user',
+      type: 'customer.subscription.updated',
+      data: { object: otherSubscription },
+    } as Stripe.Event, retrieveSubscription);
+
+    await expect(database.user.findUniqueOrThrow({ where: { id: otherUserId } }))
+      .resolves.toMatchObject({ subscriptionStatus: 'inactive' });
+    expect(retrieveSubscription).not.toHaveBeenCalled();
   });
 
   it('stores maximum-length, case-sensitive Stripe identifiers', async () => {

@@ -60,7 +60,6 @@ async function resolveUserFromSubscription(
   database: Pick<Prisma.TransactionClient, 'user'>,
   subscription: Stripe.Subscription,
 ) {
-  const metadataUserId = subscription.metadata.demoUserId;
   const customerId = typeof subscription.customer === 'string' ? subscription.customer : subscription.customer.id;
   const select = {
     id: true,
@@ -68,9 +67,7 @@ async function resolveUserFromSubscription(
     stripeSubscriptionId: true,
     stripeCheckoutAttemptId: true,
   } as const;
-  const user = metadataUserId === DEMO_USER_ID
-    ? await database.user.findUnique({ where: { id: DEMO_USER_ID }, select })
-    : await database.user.findUnique({ where: { stripeCustomerId: customerId }, select });
+  const user = await database.user.findUnique({ where: { id: DEMO_USER_ID }, select });
   return user?.stripeCustomerId === customerId ? user : null;
 }
 
@@ -81,15 +78,11 @@ async function lockSubscriptionUser(
   const customerId = typeof subscription.customer === 'string'
     ? subscription.customer
     : subscription.customer.id;
-  const rows = subscription.metadata.demoUserId === DEMO_USER_ID
-    ? await database.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-        SELECT id FROM User
-        WHERE id = ${DEMO_USER_ID} AND stripeCustomerId = ${customerId}
-        FOR UPDATE
-      `)
-    : await database.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-        SELECT id FROM User WHERE stripeCustomerId = ${customerId} FOR UPDATE
-      `);
+  const rows = await database.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    SELECT id FROM User
+    WHERE id = ${DEMO_USER_ID} AND stripeCustomerId = ${customerId}
+    FOR UPDATE
+  `);
   return rows.length > 0;
 }
 
