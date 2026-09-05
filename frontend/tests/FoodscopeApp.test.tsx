@@ -4,7 +4,11 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FoodscopeApp } from '@/components/FoodscopeApp';
 
-vi.mock('next/image', () => ({ default: ({ src }: { src: string }) => <span data-image-src={src} /> }));
+vi.mock('next/image', () => ({
+  default: ({ src, alt, onError }: { src: string; alt: string; onError?: () => void }) => (
+    <button type="button" aria-label={alt} data-image-src={src} onClick={onError} />
+  ),
+}));
 
 describe('Foodscope locale switching', () => {
   afterEach(() => {
@@ -118,5 +122,28 @@ describe('Foodscope locale switching', () => {
     expect(screen.getByText('Nutrition unlocked')).toBeInTheDocument();
     expect(accountReads).toBe(3);
     expect(window.location.search).toBe('');
+  });
+
+  it('replaces a failed product image with the unavailable fallback', async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      const body = url.includes('/api/user')
+        ? { nutritionAccess: false }
+        : url.includes('/api/searches/recent')
+          ? { searches: [] }
+          : { products: [{
+              id: 'image', name: 'Oats', brand: null,
+              image: 'https://images.openfoodfacts.org/oats.jpg', nutritionLocked: true,
+            }] };
+      return { ok: true, json: async () => body } as Response;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<FoodscopeApp />);
+
+    await userEvent.type(screen.getByLabelText('Search products'), 'oats');
+    await userEvent.click(screen.getByRole('button', { name: /^Search/ }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Oats' }));
+
+    expect(screen.queryByRole('button', { name: 'Oats' })).not.toBeInTheDocument();
   });
 });

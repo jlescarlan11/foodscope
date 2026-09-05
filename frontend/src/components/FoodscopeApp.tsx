@@ -34,10 +34,12 @@ function wait(ms: number, signal: AbortSignal) {
 }
 
 function ProductCard({ product, messages }: { product: Product; messages: Messages }) {
+  const [failedImage, setFailedImage] = useState<string | null>(null);
+  const showImage = product.image && failedImage !== product.image;
   return (
     <article className="product-card">
       <div className="product-image-wrap">
-        {product.image ? <Image src={product.image} alt={product.name ?? messages.unavailable} fill sizes="(max-width: 720px) 100vw, 33vw" className="product-image" /> : <span className="image-fallback" aria-hidden="true">◌</span>}
+        {showImage ? <Image src={product.image!} alt={product.name ?? messages.unavailable} fill sizes="(max-width: 720px) 100vw, 33vw" className="product-image" onError={() => setFailedImage(product.image)} /> : <span className="image-fallback" aria-hidden="true">◌</span>}
       </div>
       <div className="product-content">
         <p className="brand">{product.brand ?? messages.unknownBrand}</p>
@@ -166,7 +168,7 @@ export function FoodscopeApp() {
     <main>
       <header className="topbar">
         <a href="#content" className="wordmark" aria-label="Foodscope home"><span className="logo-mark">f</span>foodscope</a>
-        <label className="locale-control"><span>{messages.language}</span><select value={locale} onChange={(event) => changeLocale(event.target.value as Locale)}>{locales.map((item) => <option key={item} value={item}>{localeNames[item]}</option>)}</select></label>
+        <label className="locale-control"><span>{messages.language}</span><select aria-label={messages.language} value={locale} onChange={(event) => changeLocale(event.target.value as Locale)}>{locales.map((item) => <option key={item} value={item}>{localeNames[item]}</option>)}</select></label>
       </header>
 
       <section className="hero" id="content">
@@ -185,7 +187,7 @@ export function FoodscopeApp() {
         </div>
 
         <aside className="plan-card">
-          <div className="plan-top"><span className="spark" aria-hidden="true">✣</span><div><p>{messages.plan}</p><strong>{user?.nutritionAccess ? messages.active : messages.inactive}</strong></div><span className={`status-dot ${user?.nutritionAccess ? 'on' : ''}`} /></div>
+          <div className="plan-top"><span className="spark" aria-hidden="true">✣</span><div><p>{messages.plan}</p><strong>{user?.nutritionAccess ? messages.active : messages.inactive}</strong></div><span aria-hidden="true" className={`status-dot ${user?.nutritionAccess ? 'on' : ''}`} /></div>
           <p>{messages.subscriptionBody}</p>
           {!user?.nutritionAccess && <button onClick={() => void subscribe()} disabled={subscribing}>{subscribing ? messages.redirecting : messages.subscribe}<span>↗</span></button>}
           <small>{messages.monthly}</small>
