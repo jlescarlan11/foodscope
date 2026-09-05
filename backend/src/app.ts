@@ -217,7 +217,12 @@ export function createApp(deps: AppDependencies) {
   app.get(
     '/api/searches/recent',
     asyncRoute(async (_req, res) => {
+      let responseClosed = false;
+      res.once('close', () => {
+        if (!res.writableEnded) responseClosed = true;
+      });
       const user = await deps.repository.getDemoUser();
+      if (responseClosed) return;
       if (!user) {
         res.status(503).json({ error: 'Demo user is not initialized' });
         return;

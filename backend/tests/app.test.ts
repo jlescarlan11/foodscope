@@ -524,6 +524,45 @@ describe('Foodscope API', () => {
     expect(recent.body.searches[0]).toMatchObject({ query: 'oat milk', locale: 'nl' });
   });
 
+  it('does not query history after disconnecting during the recent-search account read', async () => {
+    const setup = harness();
+    let accountReadStarted: (() => void) | undefined;
+    let releaseAccountRead: (() => void) | undefined;
+    const accountRead = new Promise<void>((resolve) => { accountReadStarted = resolve; });
+    const release = new Promise<void>((resolve) => { releaseAccountRead = resolve; });
+    vi.mocked(setup.repository.getDemoUser).mockImplementationOnce(async () => {
+      accountReadStarted?.();
+      await release;
+      return baseUser;
+    });
+    const server = setup.app.listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => server.once('listening', resolve));
+    const connectionClosed = new Promise<void>((resolve) => {
+      server.once('connection', (socket) => socket.once('close', () => resolve()));
+    });
+
+    try {
+      const address = server.address();
+      if (!address || typeof address === 'string') throw new Error('Expected a TCP listener');
+      const controller = new AbortController();
+      const response = fetch(`http://127.0.0.1:${address.port}/api/searches/recent`, {
+        signal: controller.signal,
+      }).catch(() => undefined);
+
+      await accountRead;
+      controller.abort();
+      await response;
+      await connectionClosed;
+      releaseAccountRead?.();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      expect(setup.repository.getRecentSearches).not.toHaveBeenCalled();
+    } finally {
+      releaseAccountRead?.();
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+  });
+
   it('does not persist a search when the authoritative entitlement recheck fails', async () => {
     const setup = harness('active');
     vi.mocked(setup.repository.getDemoUser)
