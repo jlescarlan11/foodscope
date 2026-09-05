@@ -18,5 +18,9 @@ export function resolveApiUrl(value: string | undefined, environment: string | u
   ) {
     throw new Error('NEXT_PUBLIC_API_URL must be an absolute HTTP(S) origin');
   }
+  const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+  if (environment === 'production' && url.protocol !== 'https:' && !loopback) {
+    throw new Error('NEXT_PUBLIC_API_URL must use HTTPS in production');
+  }
   return url.origin;
 }

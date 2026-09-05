@@ -28,4 +28,11 @@ describe('browser API configuration', () => {
 
     expect(resolveApiUrl('https://api.example/', 'production')).toBe('https://api.example');
   });
+
+  it('requires HTTPS for non-loopback production API origins', () => {
+    expect(() => resolveApiUrl('http://api.example', 'production')).toThrow(
+      'NEXT_PUBLIC_API_URL must use HTTPS in production',
+    );
+    expect(resolveApiUrl('http://127.0.0.1:4000', 'production')).toBe('http://127.0.0.1:4000');
+  });
 });

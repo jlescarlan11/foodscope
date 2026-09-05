@@ -19,7 +19,7 @@ function parsePort(value: string | undefined) {
   return port;
 }
 
-function parseFrontendOrigin(value: string | undefined) {
+function parseFrontendOrigin(value: string | undefined, environment: string | undefined) {
   const input = value ?? 'http://localhost:3000';
   let url: URL;
   try {
@@ -36,6 +36,10 @@ function parseFrontendOrigin(value: string | undefined) {
     url.hash
   ) {
     throw new Error('FRONTEND_URL must be an absolute HTTP(S) origin');
+  }
+  const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+  if (environment === 'production' && url.protocol !== 'https:' && !loopback) {
+    throw new Error('FRONTEND_URL must use HTTPS in production');
   }
   return url.origin;
 }
@@ -67,7 +71,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
 
   return {
     port: parsePort(environment.PORT),
-    frontendUrl: parseFrontendOrigin(environment.FRONTEND_URL),
+    frontendUrl: parseFrontendOrigin(environment.FRONTEND_URL, environment.NODE_ENV),
     openFoodFactsUserAgent,
     stripeSecretKey: environment.STRIPE_SECRET_KEY,
     stripeWebhookSecret: environment.STRIPE_WEBHOOK_SECRET,

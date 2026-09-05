@@ -60,4 +60,18 @@ describe('runtime configuration', () => {
       FRONTEND_URL: 'https://frontend.example/',
     }).frontendUrl).toBe('https://frontend.example');
   });
+
+  it('requires HTTPS for non-loopback production frontend origins', () => {
+    expect(() => loadConfig({
+      ...validEnvironment,
+      NODE_ENV: 'production',
+      FRONTEND_URL: 'http://frontend.example',
+    })).toThrow('FRONTEND_URL must use HTTPS in production');
+
+    expect(loadConfig({
+      ...validEnvironment,
+      NODE_ENV: 'production',
+      FRONTEND_URL: 'http://localhost:3000',
+    }).frontendUrl).toBe('http://localhost:3000');
+  });
 });
