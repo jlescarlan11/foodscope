@@ -157,6 +157,9 @@ export function createApp(deps: AppDependencies) {
       let results;
       const controller = new AbortController();
       req.once('aborted', () => controller.abort());
+      res.once('close', () => {
+        if (!res.writableEnded) controller.abort();
+      });
       try {
         results = await deps.products.search(parsed.data.q, parsed.data.lang, controller.signal);
       } catch (error) {

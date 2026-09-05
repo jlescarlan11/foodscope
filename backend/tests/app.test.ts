@@ -108,6 +108,52 @@ describe('Foodscope API', () => {
     expect(setup.repository.saveSearch).not.toHaveBeenCalled();
   });
 
+  it('cancels provider work and skips history when the response connection closes', async () => {
+    const setup = harness();
+    let startedSearch: (() => void) | undefined;
+    const searchStarted = new Promise<void>((resolve) => { startedSearch = resolve; });
+    let providerSignal: AbortSignal | undefined;
+    setup.dependencies.products.search = vi.fn(async (_query, _locale, signal) => {
+      providerSignal = signal;
+      startedSearch?.();
+      await new Promise<void>((resolve, reject) => {
+        if (signal?.aborted) {
+          reject(signal.reason);
+          return;
+        }
+        signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+      });
+      return [];
+    });
+    const server = setup.app.listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => server.once('listening', resolve));
+
+    try {
+      const address = server.address();
+      if (!address || typeof address === 'string') throw new Error('Expected a TCP listener');
+      const controller = new AbortController();
+      const response = fetch(`http://127.0.0.1:${address.port}/api/products/search`, {
+        method: 'POST',
+        headers: { origin: 'http://localhost:3000', 'content-type': 'application/json' },
+        body: JSON.stringify({
+          requestId: '00000000-0000-4000-8000-000000000002',
+          q: 'milk',
+          lang: 'en',
+        }),
+        signal: controller.signal,
+      }).catch(() => undefined);
+
+      await searchStarted;
+      controller.abort();
+      await response;
+
+      await vi.waitFor(() => expect(providerSignal?.aborted).toBe(true));
+      expect(setup.repository.saveSearch).not.toHaveBeenCalled();
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+  });
+
   it('classifies malformed and oversized JSON as non-retryable client errors', async () => {
     const setup = harness();
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
