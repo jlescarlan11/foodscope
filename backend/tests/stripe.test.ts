@@ -592,6 +592,8 @@ describe('Stripe Checkout creation', () => {
     { status: 'expired' },
     { customer: 'cus_other' },
     { customer: { id: 'cus_test', object: 'invoice' } },
+    { customer: { id: 'cus_test', object: 'customer', deleted: true } },
+    { customer: { id: 'cus_test', object: 'customer', deleted: false, livemode: true } },
     { metadata: { demoUserId: 'unexpected-user' } },
     { expires_at: Number.NaN },
     { expires_at: Math.floor(new Date('2030-01-01T00:30:00Z').getTime() / 1000) },
@@ -679,6 +681,23 @@ describe('Stripe Checkout creation', () => {
       data: [{
         id: 'sub_wrong_customer_object', object: 'subscription', livemode: false,
         customer: { id: 'cus_existing', object: 'invoice' }, status: 'canceled',
+      }],
+      has_more: false,
+    }],
+    ['returns a terminal Subscription with a deleted expanded Customer', {
+      data: [{
+        id: 'sub_deleted_customer', object: 'subscription', livemode: false,
+        customer: { id: 'cus_existing', object: 'customer', deleted: true }, status: 'canceled',
+      }],
+      has_more: false,
+    }],
+    ['returns a terminal Subscription with a live-mode expanded Customer', {
+      data: [{
+        id: 'sub_live_customer', object: 'subscription', livemode: false,
+        customer: {
+          id: 'cus_existing', object: 'customer', deleted: false, livemode: true,
+        },
+        status: 'canceled',
       }],
       has_more: false,
     }],

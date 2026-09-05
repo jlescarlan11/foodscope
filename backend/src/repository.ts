@@ -48,6 +48,16 @@ function expandableId(value: unknown, objectType: string) {
   return null;
 }
 
+function activeCustomerId(value: unknown) {
+  if (isStripeOpaqueId(value)) return value;
+  if (
+    isRecord(value) && value.object === 'customer' &&
+    value.deleted !== true && value.livemode === false &&
+    isStripeOpaqueId(value.id)
+  ) return value.id;
+  return null;
+}
+
 function eventObject(event: Stripe.Event): unknown {
   const rawEvent = event as unknown as Record<string, unknown>;
   const data = isRecord(rawEvent.data) ? rawEvent.data : null;
@@ -59,7 +69,7 @@ function isSubscriptionReference(value: unknown): value is Stripe.Subscription {
     value.object === 'subscription' &&
     value.livemode === false &&
     isStripeOpaqueId(value.id) &&
-    expandableId(value.customer, 'customer') !== null &&
+    activeCustomerId(value.customer) !== null &&
     isRecord(value.metadata);
 }
 
@@ -67,7 +77,8 @@ async function resolveUserFromSubscription(
   database: Pick<Prisma.TransactionClient, 'user'>,
   subscription: Stripe.Subscription,
 ) {
-  const customerId = typeof subscription.customer === 'string' ? subscription.customer : subscription.customer.id;
+  const customerId = activeCustomerId(subscription.customer);
+  if (!customerId) return null;
   const select = {
     id: true,
     stripeCustomerId: true,
@@ -82,9 +93,8 @@ async function lockSubscriptionUser(
   database: Pick<Prisma.TransactionClient, '$queryRaw'>,
   subscription: Stripe.Subscription,
 ) {
-  const customerId = typeof subscription.customer === 'string'
-    ? subscription.customer
-    : subscription.customer.id;
+  const customerId = activeCustomerId(subscription.customer);
+  if (!customerId) return false;
   const rows = await database.$queryRaw<Array<{ id: string }>>(Prisma.sql`
     SELECT id FROM User
     WHERE id = ${DEMO_USER_ID} AND stripeCustomerId = ${customerId}
@@ -293,7 +303,7 @@ export function createRepository(database: typeof prisma, stripePriceId?: string
             const sessionId = isRecord(session) && isStripeOpaqueId(session.id)
               ? session.id
               : null;
-            const customerId = isRecord(session) ? expandableId(session.customer, 'customer') : null;
+            const customerId = isRecord(session) ? activeCustomerId(session.customer) : null;
             const subscriptionId = isRecord(session)
               ? expandableId(session.subscription, 'subscription')
               : null;
@@ -322,7 +332,7 @@ export function createRepository(database: typeof prisma, stripePriceId?: string
             const sessionId = isRecord(session) && isStripeOpaqueId(session.id)
               ? session.id
               : null;
-            const customerId = isRecord(session) ? expandableId(session.customer, 'customer') : null;
+            const customerId = isRecord(session) ? activeCustomerId(session.customer) : null;
             const metadata = isRecord(session) && isRecord(session.metadata)
               ? session.metadata
               : null;

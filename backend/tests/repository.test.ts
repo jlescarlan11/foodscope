@@ -273,6 +273,9 @@ describe('Stripe webhook repository', () => {
     } as unknown as typeof prisma;
 
     const current = subscription('canceled');
+    current.customer = {
+      id: 'cus_demo', object: 'customer', deleted: false, livemode: false,
+    } as unknown as Stripe.Customer;
     current.metadata.demoUserId = 'unexpected-user';
     await createBillingRepository(database).processStripeEvent(subscriptionEvent(), async () => current);
 
@@ -296,6 +299,12 @@ describe('Stripe webhook repository', () => {
   it.each([
     ['non-Subscription object', { object: 'invoice', livemode: false }],
     ['live-mode Subscription', { object: 'subscription', livemode: true }],
+    ['Subscription with a deleted expanded Customer', {
+      customer: { id: 'cus_demo', object: 'customer', deleted: true },
+    }],
+    ['Subscription with a live-mode expanded Customer', {
+      customer: { id: 'cus_demo', object: 'customer', deleted: false, livemode: true },
+    }],
   ])('rolls back instead of granting from a retrieved %s', async (_description, shape) => {
     const update = vi.fn();
     const tx = {
@@ -804,6 +813,10 @@ describe('Stripe webhook repository', () => {
       customer: { id: 'cus_demo', object: 'invoice' },
       livemode: false, mode: 'subscription', status: 'expired',
     }],
+    ['deleted expanded Customer', {
+      customer: { id: 'cus_demo', object: 'customer', deleted: true },
+      livemode: false, mode: 'subscription', status: 'expired',
+    }],
     ['live-mode Session', { livemode: true, mode: 'subscription', status: 'expired' }],
     ['non-subscription Session', { livemode: false, mode: 'payment', status: 'expired' }],
     ['unexpired Session', { livemode: false, mode: 'subscription', status: 'open' }],
@@ -866,6 +879,10 @@ describe('Stripe webhook repository', () => {
     ['non-Session object', { object: 'invoice', livemode: false, mode: 'subscription', status: 'complete' }],
     ['non-Customer expanded reference', {
       customer: { id: 'cus_demo', object: 'invoice' },
+      livemode: false, mode: 'subscription', status: 'complete',
+    }],
+    ['deleted expanded Customer', {
+      customer: { id: 'cus_demo', object: 'customer', deleted: true },
       livemode: false, mode: 'subscription', status: 'complete',
     }],
     ['non-Subscription expanded reference', {

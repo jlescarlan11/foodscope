@@ -41,11 +41,13 @@ function safeCheckoutUrl(value: string | null) {
 
 function expandableCustomerId(value: unknown) {
   if (isStripeOpaqueId(value)) return value;
-  if (
-    typeof value === 'object' && value !== null && 'id' in value &&
-    'object' in value && value.object === 'customer' &&
-    isStripeOpaqueId(value.id)
-  ) return value.id;
+  if (typeof value === 'object' && value !== null) {
+    const customer = value as Record<string, unknown>;
+    if (
+      customer.object === 'customer' && customer.deleted !== true &&
+      customer.livemode === false && isStripeOpaqueId(customer.id)
+    ) return customer.id;
+  }
   return null;
 }
 
