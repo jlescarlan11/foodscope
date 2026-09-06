@@ -223,6 +223,16 @@ function isProductSearchResponse(
   });
 }
 
+function lockProduct(product: Product): Product {
+  return {
+    id: product.id,
+    name: product.name,
+    brand: product.brand,
+    image: product.image,
+    nutritionLocked: true,
+  };
+}
+
 function isRecentSearchResponse(value: unknown): value is { searches: RecentSearch[] } {
   if (!value || typeof value !== 'object') return false;
   const searches = (value as Record<string, unknown>).searches;
@@ -496,19 +506,36 @@ export function FoodscopeApp() {
         REQUEST_TIMEOUT_MS.search,
       );
       if (controller.signal.aborted || paginationSession.current !== session) return;
-      if (!isProductSearchResponse(result)) throw new Error('Invalid product response');
       const account = searchResponseAccount(result);
-      if (!account.valid) throw new Error('Invalid product response');
       accountController.current?.abort();
       accountController.current = null;
       accountSequence.current += 1;
+      if (!account.valid) {
+        setUser(null);
+        setAccountState('error');
+        setProducts((currentProducts) => currentProducts?.map(lockProduct) ?? currentProducts);
+        throw new Error('Invalid product response');
+      }
       setUser(account.account);
       setAccountState(account.account ? 'ready' : 'error');
+      const nutritionAccess = account.account?.nutritionAccess === true;
+      if (!isProductSearchResponse(result)) {
+        if (!nutritionAccess) {
+          setProducts((currentProducts) => currentProducts?.map(lockProduct) ?? currentProducts);
+        }
+        throw new Error('Invalid product response');
+      }
       setProducts((currentProducts) => {
         if (!currentProducts) return currentProducts;
-        const seenIds = new Set(currentProducts.map((product) => product.id));
-        const newProducts = result.products.filter((product) => !seenIds.has(product.id));
-        return [...currentProducts, ...newProducts];
+        const reconciledProducts = nutritionAccess
+          ? currentProducts
+          : currentProducts.map(lockProduct);
+        const seenIds = new Set(reconciledProducts.map((product) => product.id));
+        const incomingProducts = nutritionAccess
+          ? result.products
+          : result.products.map(lockProduct);
+        const newProducts = incomingProducts.filter((product) => !seenIds.has(product.id));
+        return [...reconciledProducts, ...newProducts];
       });
       const canLoadMore = result.hasMore === true && typeof result.nextPage === 'number';
       setHasMoreProducts(canLoadMore);

@@ -405,6 +405,23 @@ integration('Repository with MySQL', () => {
     })).resolves.toBe(2);
   });
 
+  it('keeps the query-key expansion compatible with the current-base writer', async () => {
+    const requestId = '00000000-0000-4000-8000-000000000013';
+
+    await database.$executeRaw`
+      INSERT INTO RecentSearch (userId, requestId, query, locale)
+      VALUES (${DEMO_USER_ID}, ${requestId}, ${'legacy writer query'}, ${'en'})
+    `;
+
+    await expect(database.recentSearch.findUniqueOrThrow({
+      where: { userId_requestId: { userId: DEMO_USER_ID, requestId } },
+    })).resolves.toMatchObject({
+      query: 'legacy writer query',
+      locale: 'en',
+      queryKey: null,
+    });
+  });
+
   it('reserves and reuses one Checkout attempt under concurrency', async () => {
     const [first, second] = await Promise.all([
       subject.getOrCreateCheckoutAttempt(DEMO_USER_ID),
@@ -517,10 +534,29 @@ integration('Repository with MySQL', () => {
 
     await expect(database.user.findUniqueOrThrow({ where: { id: DEMO_USER_ID } }))
       .resolves.toMatchObject({
-        stripeCustomerId: 'cus_integration',
+        stripeCustomerId: null,
+        stripeSubscriptionId: null,
         subscriptionStatus: 'canceled',
         subscriptionCurrentPeriodEnd: null,
       });
+
+    await expect(subject.syncSubscription(DEMO_USER_ID, subscription('active')))
+      .rejects.toThrow('Subscription management is unavailable');
+    await expect(database.user.findUniqueOrThrow({ where: { id: DEMO_USER_ID } }))
+      .resolves.toMatchObject({
+        stripeCustomerId: null,
+        stripeSubscriptionId: null,
+        subscriptionStatus: 'canceled',
+        subscriptionCurrentPeriodEnd: null,
+      });
+
+    await database.user.update({
+      where: { id: DEMO_USER_ID },
+      data: {
+        stripeCustomerId: 'cus_integration',
+        stripeSubscriptionId: 'sub_replacement',
+      },
+    });
   });
 
   it('releases a matching Checkout attempt as soon as Stripe expires its Session', async () => {

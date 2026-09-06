@@ -629,6 +629,102 @@ describe('Foodscope locale switching', () => {
     expect(disconnect).toHaveBeenCalled();
   });
 
+  it('removes previously loaded nutrition when a later page observes revocation', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/api/user')) {
+        return {
+          ok: true,
+          json: async () => accountState({ nutritionAccess: true, checkoutAvailable: false }),
+        } as Response;
+      }
+      if (url.includes('/api/searches/recent')) {
+        return { ok: true, json: async () => ({ searches: [] }) } as Response;
+      }
+      const page = (JSON.parse(String(init?.body)) as { page: number }).page;
+      return {
+        ok: true,
+        json: async () => page === 1
+          ? {
+              products: [{
+                id: 'entitled', name: 'Entitled result', brand: null, image: null,
+                nutritionLocked: false, nutrition: { fat: { value: 2, unit: 'g' } },
+              }],
+              account: accountState({ nutritionAccess: true, checkoutAvailable: false }),
+              hasMore: true,
+              nextPage: 2,
+            }
+          : {
+              products: [{
+                id: 'revoked', name: 'Revoked result', brand: null, image: null,
+                nutritionLocked: false, nutrition: { fat: { value: 9, unit: 'g' } },
+              }],
+              account: accountState(),
+              hasMore: false,
+              nextPage: null,
+            },
+      } as Response;
+    }));
+    render(<FoodscopeApp />);
+
+    await userEvent.type(screen.getByLabelText('Search products'), 'spread');
+    await userEvent.click(screen.getByRole('button', { name: /^Search/ }));
+    expect(await screen.findByText('2 g')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Load more' }));
+
+    expect(await screen.findByRole('heading', { name: 'Revoked result' })).toBeInTheDocument();
+    expect(screen.queryByText('2 g')).not.toBeInTheDocument();
+    expect(screen.getByText('Free plan')).toBeInTheDocument();
+    expect(screen.getAllByText('Nutrition is locked')).toHaveLength(2);
+  });
+
+  it('invalidates plan state and loaded nutrition for a malformed later-page account', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/api/user')) {
+        return {
+          ok: true,
+          json: async () => accountState({ nutritionAccess: true, checkoutAvailable: false }),
+        } as Response;
+      }
+      if (url.includes('/api/searches/recent')) {
+        return { ok: true, json: async () => ({ searches: [] }) } as Response;
+      }
+      const page = (JSON.parse(String(init?.body)) as { page: number }).page;
+      return {
+        ok: true,
+        json: async () => page === 1
+          ? {
+              products: [{
+                id: 'entitled', name: 'Entitled result', brand: null, image: null,
+                nutritionLocked: false, nutrition: { fat: { value: 2, unit: 'g' } },
+              }],
+              account: accountState({ nutritionAccess: true, checkoutAvailable: false }),
+              hasMore: true,
+              nextPage: 2,
+            }
+          : {
+              products: [],
+              account: { nutritionAccess: false },
+              hasMore: false,
+              nextPage: null,
+            },
+      } as Response;
+    }));
+    render(<FoodscopeApp />);
+
+    await userEvent.type(screen.getByLabelText('Search products'), 'spread');
+    await userEvent.click(screen.getByRole('button', { name: /^Search/ }));
+    expect(await screen.findByText('2 g')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Load more' }));
+
+    expect(await screen.findByRole('button', { name: 'Retry plan status' })).toBeInTheDocument();
+    expect(screen.queryByText('2 g')).not.toBeInTheDocument();
+    expect(screen.getByText('Nutrition is locked')).toBeInTheDocument();
+  });
+
   it('synchronizes account state when a search observes entitlement revocation', async () => {
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       const url = String(input);

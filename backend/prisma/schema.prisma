@@ -29,7 +29,7 @@ model RecentSearch {
   id        Int      @id @default(autoincrement())
   userId    String   @db.VarChar(36)
   requestId String?  @db.VarChar(36)
-  queryKey  String   @db.Char(64)
+  queryKey  String?  @db.Char(64)
   query     String   @db.VarChar(120)
   locale    String   @db.VarChar(2)
   createdAt DateTime @default(now())

@@ -3,7 +3,7 @@ import request from 'supertest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp, type AppDependencies } from '../src/app.js';
 import { DEMO_USER_ID, type Locale } from '../src/constants.js';
-import { ProductProviderRateLimitError } from '../src/open-food-facts.js';
+import { OpenFoodFactsProvider, ProductProviderRateLimitError } from '../src/open-food-facts.js';
 import {
   CheckoutRateLimitError,
   CheckoutUnavailableError,
@@ -590,6 +590,47 @@ describe('Foodscope API', () => {
     expect(response.body.products[0]).toMatchObject({ nutritionLocked: true });
     expect(response.body.products[0]).not.toHaveProperty('nutrition');
     expect(response.body.account).toMatchObject({ nutritionAccess: false });
+  });
+
+  it('reuses cached provider data while rechecking entitlement and persisting each search', async () => {
+    const setup = harness();
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ hits: [{
+      code: 'cached',
+      lang: 'en',
+      product_name: 'Cached product',
+      nutrition_data_per: '100g',
+      nutriments: { 'fat_100g': 2 },
+    }] }), { status: 200 }));
+    setup.dependencies.products = new OpenFoodFactsProvider('FoodscopeTest/1.0', fetcher);
+    let userRead = 0;
+    vi.mocked(setup.repository.getDemoUser).mockImplementation(async () => {
+      userRead += 1;
+      return {
+        ...baseUser,
+        subscriptionStatus: userRead <= 2 ? 'inactive' : 'active',
+        subscriptionCurrentPeriodEnd: userRead <= 2 ? null : new Date('2100-01-01T00:00:00.000Z'),
+      };
+    });
+
+    const inactive = await search(
+      setup.app, 'Milk', 'en', '00000000-0000-4000-8000-000000000002',
+    );
+    const active = await search(
+      setup.app, ' milk ', 'en', '00000000-0000-4000-8000-000000000003',
+    );
+
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(setup.repository.saveSearch).toHaveBeenCalledTimes(2);
+    expect(inactive.body.products[0]).toMatchObject({ nutritionLocked: true });
+    expect(inactive.body.products[0]).not.toHaveProperty('nutrition');
+    expect(inactive.body.account.nutritionAccess).toBe(false);
+    expect(active.body.products[0]).toMatchObject({
+      nutritionLocked: false,
+      nutrition: { fat: { value: 2, unit: 'g' } },
+    });
+    expect(active.body.account.nutritionAccess).toBe(true);
+    expect(inactive.headers['cache-control']).toBe('no-store');
+    expect(active.headers['cache-control']).toBe('no-store');
   });
 
   it('reports missing nutrition and still synchronizes authoritative account state', async () => {

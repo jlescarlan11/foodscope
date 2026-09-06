@@ -430,6 +430,13 @@ export function createRepository(database: typeof prisma, stripePriceId?: string
               await tx.user.updateMany({
                 where: { id: DEMO_USER_ID, stripeCustomerId: customerId },
                 data: {
+                  stripeCustomerId: null,
+                  stripeSubscriptionId: null,
+                  stripeCheckoutAttemptId: null,
+                  stripeCheckoutPriceId: null,
+                  stripeCheckoutSessionId: null,
+                  stripeCheckoutSessionUrl: null,
+                  stripeCheckoutExpiresAt: null,
                   subscriptionStatus: 'canceled',
                   subscriptionCurrentPeriodEnd: null,
                   subscriptionCancelAtPeriodEnd: false,

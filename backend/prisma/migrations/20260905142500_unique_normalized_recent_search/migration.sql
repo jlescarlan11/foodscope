@@ -19,5 +19,4 @@ JOIN `RecentSearch` newer
   );
 
 ALTER TABLE `RecentSearch`
-  MODIFY `queryKey` CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   ADD UNIQUE INDEX `RecentSearch_userId_locale_queryKey_key`(`userId`, `locale`, `queryKey`);

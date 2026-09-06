@@ -956,6 +956,13 @@ describe('Stripe webhook repository', () => {
     expect(updateMany).toHaveBeenCalledWith({
       where: { id: DEMO_USER_ID, stripeCustomerId: 'cus_demo' },
       data: {
+        stripeCustomerId: null,
+        stripeSubscriptionId: null,
+        stripeCheckoutAttemptId: null,
+        stripeCheckoutPriceId: null,
+        stripeCheckoutSessionId: null,
+        stripeCheckoutSessionUrl: null,
+        stripeCheckoutExpiresAt: null,
         subscriptionStatus: 'canceled',
         subscriptionCurrentPeriodEnd: null,
         subscriptionCancelAtPeriodEnd: false,
