@@ -1,7 +1,12 @@
 import { createHash } from 'node:crypto';
 import Stripe from 'stripe';
 import type { AppConfig } from './config.js';
-import { CheckoutRateLimitError, CheckoutUnavailableError } from './errors.js';
+import { isActiveSubscription } from './constants.js';
+import {
+  CheckoutRateLimitError,
+  CheckoutUnavailableError,
+  SubscriptionUnavailableError,
+} from './errors.js';
 import {
   isStripePriceId,
   isStripeOpaqueId,
@@ -41,6 +46,10 @@ function safeCheckoutUrl(value: string | null) {
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 function expandableCustomerId(value: unknown) {
   if (isStripeOpaqueId(value)) return value;
   if (typeof value === 'object' && value !== null) {
@@ -51,6 +60,36 @@ function expandableCustomerId(value: unknown) {
     ) return customer.id;
   }
   return null;
+}
+
+function isManagedSubscription(
+  value: unknown,
+  user: DemoUser,
+  stripePriceId: string,
+): value is Stripe.Subscription {
+  if (!isRecord(value)) return false;
+  const metadata = isRecord(value.metadata) ? value.metadata : null;
+  const items = isRecord(value.items) ? value.items : null;
+  if (
+    value.id !== user.stripeSubscriptionId ||
+    value.object !== 'subscription' ||
+    value.livemode !== false ||
+    expandableCustomerId(value.customer) !== user.stripeCustomerId ||
+    metadata?.demoUserId !== user.id ||
+    !isActiveSubscription(typeof value.status === 'string' ? value.status : '') ||
+    typeof value.cancel_at_period_end !== 'boolean' ||
+    items?.has_more !== false ||
+    !Array.isArray(items.data)
+  ) return false;
+  const matchingItems = items.data.filter((item) =>
+    isRecord(item) &&
+    item.object === 'subscription_item' &&
+    isMonthlyTestPrice(item.price, stripePriceId) &&
+    typeof item.current_period_end === 'number' &&
+    Number.isSafeInteger(item.current_period_end) &&
+    item.current_period_end * 1000 > Date.now()
+  );
+  return matchingItems.length === 1 && items.data.length === 1;
 }
 
 function createdCustomerId(value: unknown, demoUserId: string) {
@@ -134,6 +173,44 @@ export class StripeBillingProvider implements BillingProvider {
     });
     this.checkoutRequests.set(user.id, request);
     return request;
+  }
+
+  async updateSubscriptionCancellation(
+    user: DemoUser,
+    cancelAtPeriodEnd: boolean,
+    requestId: string,
+  ) {
+    if (
+      !this.config.stripePriceId ||
+      !isStripeOpaqueId(user.stripeCustomerId) ||
+      !isStripeOpaqueId(user.stripeSubscriptionId) ||
+      !isActiveSubscription(user.subscriptionStatus) ||
+      !(user.subscriptionCurrentPeriodEnd instanceof Date) ||
+      user.subscriptionCurrentPeriodEnd.getTime() <= Date.now()
+    ) {
+      throw new SubscriptionUnavailableError();
+    }
+    const current = await this.stripe.subscriptions.retrieve(user.stripeSubscriptionId);
+    if (!isManagedSubscription(current, user, this.config.stripePriceId)) {
+      throw new SubscriptionUnavailableError();
+    }
+    if (current.cancel_at_period_end === cancelAtPeriodEnd) {
+      await this.repository.syncSubscription(user.id, current);
+      return;
+    }
+    const action = cancelAtPeriodEnd ? 'cancel' : 'resume';
+    const updated = await this.stripe.subscriptions.update(
+      user.stripeSubscriptionId,
+      { cancel_at_period_end: cancelAtPeriodEnd },
+      { idempotencyKey: `foodscope-subscription-${action}-${requestId}` },
+    );
+    if (
+      !isManagedSubscription(updated, user, this.config.stripePriceId) ||
+      updated.cancel_at_period_end !== cancelAtPeriodEnd
+    ) {
+      throw new Error('Stripe did not return a valid Subscription update');
+    }
+    await this.repository.syncSubscription(user.id, updated);
   }
 
   private validateConfiguredPrice() {

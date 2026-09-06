@@ -4,7 +4,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp, type AppDependencies } from '../src/app.js';
 import { DEMO_USER_ID, type Locale } from '../src/constants.js';
 import { ProductProviderRateLimitError } from '../src/open-food-facts.js';
-import { CheckoutRateLimitError, CheckoutUnavailableError } from '../src/errors.js';
+import {
+  CheckoutRateLimitError,
+  CheckoutUnavailableError,
+  SubscriptionUnavailableError,
+} from '../src/errors.js';
 import type { DemoUser, RecentSearch, Repository } from '../src/types.js';
 
 const baseUser: DemoUser = {
@@ -12,6 +16,7 @@ const baseUser: DemoUser = {
   stripeSubscriptionId: null, stripeCheckoutAttemptId: null, stripeCheckoutSessionId: null,
   stripeCheckoutSessionUrl: null, stripeCheckoutExpiresAt: null,
   subscriptionStatus: 'inactive', subscriptionCurrentPeriodEnd: null,
+  subscriptionCancelAtPeriodEnd: false,
 };
 
 function harness(status = 'inactive') {
@@ -46,6 +51,13 @@ function harness(status = 'inactive') {
     })),
     completeCheckoutAttempt: vi.fn(async () => undefined),
     releaseCheckoutAttempt: vi.fn(async () => undefined),
+    syncSubscription: vi.fn(async (_userId: string, subscription: Stripe.Subscription) => {
+      user = {
+        ...user,
+        subscriptionStatus: subscription.status,
+        subscriptionCancelAtPeriodEnd: subscription.cancel_at_period_end,
+      };
+    }),
     processStripeEvent: vi.fn(async (
       event: Stripe.Event,
       retrieveSubscription?: (subscriptionId: string) => Promise<Stripe.Subscription>,
@@ -74,11 +86,14 @@ function harness(status = 'inactive') {
   const dependencies: AppDependencies = {
     config: { port: 4000, host: '127.0.0.1', frontendUrl: 'http://localhost:3000', openFoodFactsUserAgent: 'test' },
     repository,
-    products: { search: vi.fn(async () => [product]) },
+    products: { search: vi.fn(async () => ({ products: [product], hasMore: false })) },
     billing: {
       createCheckout: vi.fn(async () => ({ url: 'https://checkout.stripe.test/session' })),
       constructEvent: vi.fn(() => event),
       retrieveSubscription: vi.fn(async () => currentSubscription),
+      updateSubscriptionCancellation: vi.fn(async (_user, cancelAtPeriodEnd) => {
+        user = { ...user, subscriptionCancelAtPeriodEnd: cancelAtPeriodEnd };
+      }),
     },
   };
   return { app: createApp(dependencies), repository, dependencies, event, currentSubscription };
@@ -89,11 +104,12 @@ function search(
   q: string,
   lang: string,
   requestId = '00000000-0000-4000-8000-000000000002',
+  page?: number,
 ) {
   return request(app)
     .post('/api/products/search')
     .set('origin', 'http://localhost:3000')
-    .send({ requestId, q, lang });
+    .send({ requestId, q, lang, ...(page === undefined ? {} : { page }) });
 }
 
 describe('Foodscope API', () => {
@@ -109,6 +125,8 @@ describe('Foodscope API', () => {
     expect((await search(app, 'milk\u202e.txt', 'en')).status).toBe(400);
     expect((await search(app, 'milk', 'es')).status).toBe(400);
     expect((await search(app, 'milk', 'en', 'not-a-request-id')).status).toBe(400);
+    expect((await search(app, 'milk', 'en', undefined, 0)).status).toBe(400);
+    expect((await search(app, 'milk', 'en', undefined, 1.5)).status).toBe(400);
     expect((await request(app)
       .post('/api/products/search')
       .set('origin', 'http://localhost:3000')
@@ -116,6 +134,32 @@ describe('Foodscope API', () => {
       .toBe(400);
     expect(setup.dependencies.products.search).not.toHaveBeenCalled();
     expect(setup.repository.saveSearch).not.toHaveBeenCalled();
+  });
+
+  it('fetches four products per page and records history only for the first page', async () => {
+    const setup = harness();
+    vi.mocked(setup.dependencies.products.search).mockResolvedValue({
+      products: Array.from({ length: 4 }, (_, index) => ({
+        id: `page-product-${index + 1}`,
+        name: `Page product ${index + 1}`,
+        brand: null,
+        image: null,
+      })),
+      hasMore: true,
+    });
+
+    const firstPage = await search(setup.app, 'milk', 'en', undefined, 1);
+    const secondPage = await search(setup.app, 'milk', 'en', undefined, 2);
+
+    expect(firstPage.body).toMatchObject({ hasMore: true, nextPage: 2 });
+    expect(secondPage.body).toMatchObject({ hasMore: true, nextPage: 3 });
+    expect(setup.dependencies.products.search).toHaveBeenNthCalledWith(
+      1, 'milk', 'en', expect.any(AbortSignal), 1, 4,
+    );
+    expect(setup.dependencies.products.search).toHaveBeenNthCalledWith(
+      2, 'milk', 'en', expect.any(AbortSignal), 2, 4,
+    );
+    expect(setup.repository.saveSearch).toHaveBeenCalledOnce();
   });
 
   it('rejects passive and cross-site search requests before provider work', async () => {
@@ -149,7 +193,7 @@ describe('Foodscope API', () => {
         }
         signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
       });
-      return [];
+      return { products: [], hasMore: false };
     });
     const server = setup.app.listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', resolve));
@@ -234,10 +278,13 @@ describe('Foodscope API', () => {
     let providerSignal: AbortSignal | undefined;
     vi.mocked(setup.dependencies.products.search).mockImplementation(async (_query, _locale, signal) => {
       providerSignal = signal;
-      return [{
-        id: 'cancelled', name: 'Cancelled', brand: null, image: null,
-        nutrition: { fat: { value: 1, unit: 'g' } },
-      }];
+      return {
+        products: [{
+          id: 'cancelled', name: 'Cancelled', brand: null, image: null,
+          nutrition: { fat: { value: 1, unit: 'g' } },
+        }],
+        hasMore: false,
+      };
     });
     let userReads = 0;
     let recheckStarted: (() => void) | undefined;
@@ -426,6 +473,89 @@ describe('Foodscope API', () => {
     errorLog.mockRestore();
   });
 
+  it.each([true, false])(
+    'applies a provider-backed period-end cancellation change (%s) and returns authoritative state',
+    async (cancelAtPeriodEnd) => {
+      const setup = harness('active');
+      const managedUser = {
+        ...baseUser,
+        stripeCustomerId: 'cus_test',
+        stripeSubscriptionId: 'sub_test',
+        subscriptionStatus: 'active',
+        subscriptionCurrentPeriodEnd: new Date('2100-01-01T00:00:00.000Z'),
+        subscriptionCancelAtPeriodEnd: !cancelAtPeriodEnd,
+      };
+      vi.mocked(setup.repository.getDemoUserForCheckout).mockResolvedValueOnce(managedUser);
+      vi.mocked(setup.repository.getDemoUser).mockResolvedValueOnce({
+        id: managedUser.id,
+        stripeSubscriptionId: managedUser.stripeSubscriptionId,
+        subscriptionStatus: managedUser.subscriptionStatus,
+        subscriptionCurrentPeriodEnd: managedUser.subscriptionCurrentPeriodEnd,
+        subscriptionCancelAtPeriodEnd: cancelAtPeriodEnd,
+      });
+      const requestId = cancelAtPeriodEnd
+        ? '00000000-0000-4000-8000-000000000131'
+        : '00000000-0000-4000-8000-000000000132';
+
+      const response = await request(setup.app)
+        .post('/api/billing/subscription-cancellation')
+        .set('origin', setup.dependencies.config.frontendUrl)
+        .send({ requestId, cancelAtPeriodEnd });
+
+      expect(response.status).toBe(200);
+      expect(setup.dependencies.billing?.updateSubscriptionCancellation).toHaveBeenCalledWith(
+        managedUser,
+        cancelAtPeriodEnd,
+        requestId,
+      );
+      expect(response.body).toEqual({
+        nutritionAccess: true,
+        billingAvailable: true,
+        checkoutAvailable: false,
+        subscriptionManagementAvailable: true,
+        cancellationScheduled: cancelAtPeriodEnd,
+        currentPeriodEnd: '2100-01-01T00:00:00.000Z',
+      });
+    },
+  );
+
+  it('rejects malformed or cross-site cancellation requests before Stripe work', async () => {
+    const setup = harness('active');
+    const malformed = await request(setup.app)
+      .post('/api/billing/subscription-cancellation')
+      .set('origin', setup.dependencies.config.frontendUrl)
+      .send({ requestId: 'not-a-uuid', cancelAtPeriodEnd: true });
+    const crossSite = await request(setup.app)
+      .post('/api/billing/subscription-cancellation')
+      .set('origin', 'https://attacker.example')
+      .send({
+        requestId: '00000000-0000-4000-8000-000000000133',
+        cancelAtPeriodEnd: true,
+      });
+
+    expect(malformed.status).toBe(400);
+    expect(crossSite.status).toBe(403);
+    expect(setup.repository.getDemoUserForCheckout).not.toHaveBeenCalled();
+    expect(setup.dependencies.billing?.updateSubscriptionCancellation).not.toHaveBeenCalled();
+  });
+
+  it('returns a conflict when the stored subscription can no longer be managed', async () => {
+    const setup = harness('active');
+    vi.mocked(setup.dependencies.billing!.updateSubscriptionCancellation)
+      .mockRejectedValueOnce(new SubscriptionUnavailableError());
+
+    const response = await request(setup.app)
+      .post('/api/billing/subscription-cancellation')
+      .set('origin', setup.dependencies.config.frontendUrl)
+      .send({
+        requestId: '00000000-0000-4000-8000-000000000134',
+        cancelAtPeriodEnd: true,
+      });
+
+    expect(response.status).toBe(409);
+    expect(response.body).toEqual({ error: 'Subscription management is unavailable' });
+  });
+
   it('never sends nutrition to an inactive user', async () => {
     const response = await search(harness().app, 'spread', 'en');
     expect(response.status).toBe(200);
@@ -435,6 +565,9 @@ describe('Foodscope API', () => {
       nutritionAccess: false,
       billingAvailable: true,
       checkoutAvailable: true,
+      subscriptionManagementAvailable: false,
+      cancellationScheduled: false,
+      currentPeriodEnd: null,
     });
   });
 
@@ -461,9 +594,10 @@ describe('Foodscope API', () => {
 
   it('reports missing nutrition and still synchronizes authoritative account state', async () => {
     const setup = harness();
-    vi.mocked(setup.dependencies.products.search).mockResolvedValueOnce([{
-      id: 'missing', name: 'No nutrition supplied', brand: null, image: null,
-    }]);
+    vi.mocked(setup.dependencies.products.search).mockResolvedValueOnce({
+      products: [{ id: 'missing', name: 'No nutrition supplied', brand: null, image: null }],
+      hasMore: false,
+    });
 
     const response = await search(setup.app, 'missing', 'en');
 
@@ -480,25 +614,33 @@ describe('Foodscope API', () => {
       nutritionAccess: false,
       billingAvailable: true,
       checkoutAvailable: true,
+      subscriptionManagementAvailable: false,
+      cancellationScheduled: false,
+      currentPeriodEnd: null,
     });
     expect(setup.repository.getDemoUser).toHaveBeenCalledTimes(2);
   });
 
   it('does not return the pre-provider account snapshot when nutrition is missing', async () => {
     const setup = harness();
-    vi.mocked(setup.dependencies.products.search).mockResolvedValueOnce([{
-      id: 'missing', name: 'No nutrition supplied', brand: null, image: null,
-    }]);
+    vi.mocked(setup.dependencies.products.search).mockResolvedValueOnce({
+      products: [{ id: 'missing', name: 'No nutrition supplied', brand: null, image: null }],
+      hasMore: false,
+    });
     vi.mocked(setup.repository.getDemoUser)
       .mockResolvedValueOnce({
         id: DEMO_USER_ID,
         subscriptionStatus: 'inactive',
         subscriptionCurrentPeriodEnd: null,
+        stripeSubscriptionId: null,
+        subscriptionCancelAtPeriodEnd: false,
       })
       .mockResolvedValueOnce({
         id: DEMO_USER_ID,
         subscriptionStatus: 'active',
         subscriptionCurrentPeriodEnd: new Date('2100-01-01T00:00:00.000Z'),
+        stripeSubscriptionId: 'sub_active',
+        subscriptionCancelAtPeriodEnd: false,
       });
 
     const response = await search(setup.app, 'missing', 'en');
@@ -508,21 +650,27 @@ describe('Foodscope API', () => {
       nutritionAccess: true,
       billingAvailable: true,
       checkoutAvailable: false,
+      subscriptionManagementAvailable: true,
+      cancellationScheduled: false,
+      currentPeriodEnd: '2100-01-01T00:00:00.000Z',
     });
     expect(setup.repository.getDemoUser).toHaveBeenCalledTimes(2);
   });
 
   it('sends only available normalized nutrition to an active user', async () => {
     const setup = harness('active');
-    vi.mocked(setup.dependencies.products.search).mockResolvedValueOnce([{
-      id: '3017620422003', name: 'Hazelnut spread', brand: null, image: null,
-      nutrition: {
-        fat: { value: 30.9, unit: 'g', providerNote: 'must not cross' },
-        energyKcal: { value: 44, unit: 'g' },
-        privateNutrient: { value: 99, unit: 'g' },
-      },
-      providerInternalField: 'must not cross the API boundary',
-    } as never]);
+    vi.mocked(setup.dependencies.products.search).mockResolvedValueOnce({
+      products: [{
+        id: '3017620422003', name: 'Hazelnut spread', brand: null, image: null,
+        nutrition: {
+          fat: { value: 30.9, unit: 'g', providerNote: 'must not cross' },
+          energyKcal: { value: 44, unit: 'g' },
+          privateNutrient: { value: 99, unit: 'g' },
+        },
+        providerInternalField: 'must not cross the API boundary',
+      } as never],
+      hasMore: false,
+    });
 
     const response = await search(setup.app, 'spread', 'en');
     expect(response.body.products[0]).toMatchObject({
@@ -536,6 +684,9 @@ describe('Foodscope API', () => {
       nutritionAccess: true,
       billingAvailable: true,
       checkoutAvailable: false,
+      subscriptionManagementAvailable: false,
+      cancellationScheduled: false,
+      currentPeriodEnd: '2100-01-01T00:00:00.000Z',
     });
     expect(response.body.products[0]).not.toHaveProperty('providerInternalField');
     expect(response.headers['cache-control']).toBe('no-store');
@@ -626,10 +777,13 @@ describe('Foodscope API', () => {
         ...setup.currentSubscription,
         status: 'canceled',
       } as Stripe.Subscription));
-      return [{
-        id: 'revoked', name: 'Revoked', brand: null, image: null,
-        nutrition: { fat: { value: 30.9, unit: 'g' } },
-      }];
+      return {
+        products: [{
+          id: 'revoked', name: 'Revoked', brand: null, image: null,
+          nutrition: { fat: { value: 30.9, unit: 'g' } },
+        }],
+        hasMore: false,
+      };
     });
 
     const response = await search(setup.app, 'spread', 'en');
@@ -641,6 +795,9 @@ describe('Foodscope API', () => {
       nutritionAccess: false,
       billingAvailable: true,
       checkoutAvailable: true,
+      subscriptionManagementAvailable: false,
+      cancellationScheduled: false,
+      currentPeriodEnd: null,
     });
     expect(setup.repository.getDemoUser).toHaveBeenCalledTimes(2);
   });
@@ -756,6 +913,7 @@ describe('Foodscope API', () => {
 
     expect(response.status).toBe(503);
     expect(response.headers['retry-after']).toBe('17');
+    expect(response.headers['access-control-expose-headers']).toBe('Retry-After');
     expect(response.body).toEqual({ error: 'Product search is temporarily unavailable' });
   });
 
@@ -770,7 +928,7 @@ describe('Foodscope API', () => {
       const response = await search(setup.app, 'milk', 'en');
 
       expect(response.status).toBe(503);
-      expect(response.headers['retry-after']).toBeUndefined();
+      expect(response.headers['retry-after']).toBe('60');
     },
   );
 

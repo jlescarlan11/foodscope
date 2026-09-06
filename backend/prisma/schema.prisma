@@ -19,6 +19,7 @@ model User {
   stripeCheckoutExpiresAt       DateTime?
   subscriptionStatus            String         @default("inactive") @db.VarChar(32)
   subscriptionCurrentPeriodEnd  DateTime?
+  subscriptionCancelAtPeriodEnd Boolean        @default(false)
   createdAt                     DateTime       @default(now())
   updatedAt                     DateTime       @updatedAt
   recentSearches                RecentSearch[]
@@ -28,6 +29,7 @@ model RecentSearch {
   id        Int      @id @default(autoincrement())
   userId    String   @db.VarChar(36)
   requestId String?  @db.VarChar(36)
+  queryKey  String   @db.Char(64)
   query     String   @db.VarChar(120)
   locale    String   @db.VarChar(2)
   createdAt DateTime @default(now())
@@ -35,6 +37,7 @@ model RecentSearch {
 
   @@index([userId, createdAt])
   @@unique([userId, requestId])
+  @@unique([userId, locale, queryKey])
 }
 
 model StripeWebhookEvent {

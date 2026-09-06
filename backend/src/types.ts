@@ -14,6 +14,11 @@ export type Product = {
   nutritionLocked: boolean;
 };
 
+export type ProductSearchPage = {
+  products: Array<Omit<Product, 'nutritionLocked'>>;
+  hasMore: boolean;
+};
+
 export type DemoUser = {
   id: string;
   email: string;
@@ -25,11 +30,16 @@ export type DemoUser = {
   stripeCheckoutExpiresAt: Date | null;
   subscriptionStatus: string;
   subscriptionCurrentPeriodEnd: Date | null;
+  subscriptionCancelAtPeriodEnd: boolean;
 };
 
 export type DemoUserState = Pick<
   DemoUser,
-  'id' | 'subscriptionStatus' | 'subscriptionCurrentPeriodEnd'
+  | 'id'
+  | 'stripeSubscriptionId'
+  | 'subscriptionStatus'
+  | 'subscriptionCurrentPeriodEnd'
+  | 'subscriptionCancelAtPeriodEnd'
 >;
 
 export type CheckoutAttempt = {
@@ -65,14 +75,26 @@ export interface Repository {
     event: Stripe.Event,
     retrieveSubscription?: (subscriptionId: string) => Promise<Stripe.Subscription>,
   ): Promise<void>;
+  syncSubscription(userId: string, subscription: Stripe.Subscription): Promise<void>;
 }
 
 export interface ProductProvider {
-  search(query: string, locale: Locale, signal?: AbortSignal): Promise<Array<Omit<Product, 'nutritionLocked'>>>;
+  search(
+    query: string,
+    locale: Locale,
+    signal?: AbortSignal,
+    page?: number,
+    pageSize?: number,
+  ): Promise<ProductSearchPage>;
 }
 
 export interface BillingProvider {
   createCheckout(user: DemoUser): Promise<{ url: string }>;
+  updateSubscriptionCancellation(
+    user: DemoUser,
+    cancelAtPeriodEnd: boolean,
+    requestId: string,
+  ): Promise<void>;
   constructEvent(body: Buffer, signature: string): Stripe.Event;
   retrieveSubscription(subscriptionId: string): Promise<Stripe.Subscription>;
 }

@@ -4,7 +4,8 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 type UnknownRecord = Record<string, unknown>;
 const MAX_RESPONSE_BYTES = 1_000_000;
-const MAX_PRODUCTS = 20;
+const DEFAULT_PAGE_SIZE = 4;
+const MAX_PAGE_SIZE = 20;
 const MAX_PRODUCT_TEXT_CHARACTERS = 500;
 const MAX_RETRY_AFTER_SECONDS = 3_600;
 
@@ -164,15 +165,18 @@ export class OpenFoodFactsProvider implements ProductProvider {
     this.requestTimestamps.push(now);
   }
 
-  async search(query: string, locale: Locale, signal?: AbortSignal) {
-    const params = new URLSearchParams({
-      search_terms: query,
-      search_simple: '1',
-      action: 'process',
-      json: '1',
-      lc: locale,
-      page_size: String(MAX_PRODUCTS),
-      fields: [
+  async search(
+    query: string,
+    locale: Locale,
+    signal?: AbortSignal,
+    page = 1,
+    pageSize = DEFAULT_PAGE_SIZE,
+  ) {
+    const safePage = Number.isSafeInteger(page) && page >= 1 ? page : 1;
+    const safePageSize = Number.isSafeInteger(pageSize) && pageSize >= 1
+      ? Math.min(pageSize, MAX_PAGE_SIZE)
+      : DEFAULT_PAGE_SIZE;
+    const fields = [
         'code',
         'lang',
         'product_name',
@@ -182,18 +186,26 @@ export class OpenFoodFactsProvider implements ProductProvider {
         'image_url',
         'nutrition_data_per',
         'nutriments',
-      ].join(','),
+      ];
+    const requestBody = JSON.stringify({
+      q: query,
+      page: safePage,
+      page_size: safePageSize,
+      langs: [locale],
+      fields,
     });
-    // Open Food Facts v2 only supports structured filters; plain-text search remains on this legacy endpoint.
     const request = () => {
       signal?.throwIfAborted();
       this.reserveRequest();
-      return this.fetcher(`https://world.openfoodfacts.org/cgi/search.pl?${params}`, {
+      return this.fetcher('https://search.openfoodfacts.org/search', {
+        method: 'POST',
         headers: {
           'User-Agent': this.userAgent,
           Accept: 'application/json',
           'Accept-Language': locale,
+          'Content-Type': 'application/json',
         },
+        body: requestBody,
         signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000),
       });
     };
@@ -220,18 +232,36 @@ export class OpenFoodFactsProvider implements ProductProvider {
       throw new Error(`Open Food Facts returned ${response.status}`);
     }
     const payload = await readBoundedJson(response);
-    if (!isRecord(payload) || !Array.isArray(payload.products)) {
+    if (!isRecord(payload) || !Array.isArray(payload.hits)) {
       throw new Error('Open Food Facts returned malformed data');
     }
     const products: Array<Omit<Product, 'nutritionLocked'>> = [];
     const seenIds = new Set<string>();
-    for (const rawProduct of payload.products) {
-      const product = normalizeProduct(rawProduct, locale);
+    for (const rawProduct of payload.hits) {
+      if (!isRecord(rawProduct)) continue;
+      const brands = Array.isArray(rawProduct.brands)
+        ? rawProduct.brands.filter((brand): brand is string => typeof brand === 'string').join(', ')
+        : rawProduct.brands;
+      const product = normalizeProduct({
+        ...rawProduct,
+        brands,
+        // Search-a-licious nutriment keys explicitly carry their `_100g` basis.
+        nutrition_data_per: '100g',
+      }, locale);
       if (!product || seenIds.has(product.id)) continue;
       seenIds.add(product.id);
       products.push(product);
-      if (products.length === MAX_PRODUCTS) break;
+      if (products.length === safePageSize) break;
     }
-    return products;
+    const upstreamPage = Number.isSafeInteger(payload.page) ? payload.page as number : safePage;
+    const upstreamPageCount = Number.isSafeInteger(payload.page_count)
+      ? payload.page_count as number
+      : null;
+    return {
+      products,
+      hasMore: upstreamPageCount !== null
+        ? upstreamPage < upstreamPageCount
+        : payload.hits.length >= safePageSize,
+    };
   }
 }

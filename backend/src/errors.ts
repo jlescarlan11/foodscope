@@ -9,3 +9,9 @@ export class CheckoutRateLimitError extends Error {
     super('Checkout request limit reached');
   }
 }
+
+export class SubscriptionUnavailableError extends Error {
+  constructor() {
+    super('Subscription management is unavailable for the current subscription state');
+  }
+}

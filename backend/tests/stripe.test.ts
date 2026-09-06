@@ -2,7 +2,7 @@ import Stripe from 'stripe';
 import { describe, expect, it, vi } from 'vitest';
 import { createBillingProvider, StripeBillingProvider } from '../src/stripe.js';
 import { DEMO_USER_ID } from '../src/constants.js';
-import { CheckoutUnavailableError } from '../src/errors.js';
+import { CheckoutUnavailableError, SubscriptionUnavailableError } from '../src/errors.js';
 import type { DemoUser, Repository } from '../src/types.js';
 
 const user: DemoUser = {
@@ -16,6 +16,7 @@ const user: DemoUser = {
   stripeCheckoutExpiresAt: null,
   subscriptionStatus: 'inactive',
   subscriptionCurrentPeriodEnd: null,
+  subscriptionCancelAtPeriodEnd: false,
 };
 
 function harness(sessionUrl: string | null = null, customerId: string | null = null) {
@@ -38,6 +39,7 @@ function harness(sessionUrl: string | null = null, customerId: string | null = n
       replacementCustomerId),
     completeCheckoutAttempt: vi.fn(async () => undefined),
     releaseCheckoutAttempt: vi.fn(async () => undefined),
+    syncSubscription: vi.fn(async () => undefined),
   } as unknown as Repository;
   const customersCreate = vi.fn(async (
     params?: unknown,
@@ -87,6 +89,39 @@ function harness(sessionUrl: string | null = null, customerId: string | null = n
     data: [],
     has_more: false,
   }));
+  const managedSubscription = {
+    id: 'sub_test',
+    object: 'subscription',
+    livemode: false,
+    customer: 'cus_test',
+    metadata: { demoUserId: user.id },
+    status: 'active',
+    cancel_at_period_end: false,
+    items: {
+      object: 'list',
+      has_more: false,
+      data: [{
+        id: 'si_test',
+        object: 'subscription_item',
+        current_period_end: 4_102_444_800,
+        price: {
+          id: 'price_test',
+          object: 'price',
+          livemode: false,
+          type: 'recurring',
+          recurring: { interval: 'month', interval_count: 1 },
+        },
+      }],
+    },
+  };
+  const subscriptionsRetrieve = vi.fn(async () => managedSubscription as unknown as Stripe.Subscription);
+  const subscriptionsUpdate = vi.fn(async (
+    _id: string,
+    params: { cancel_at_period_end?: boolean },
+  ) => ({
+    ...managedSubscription,
+    cancel_at_period_end: params.cancel_at_period_end ?? false,
+  } as unknown as Stripe.Subscription));
   const pricesRetrieve = vi.fn(async () => ({
     id: 'price_test',
     object: 'price',
@@ -98,7 +133,11 @@ function harness(sessionUrl: string | null = null, customerId: string | null = n
   const stripe = {
     customers: { create: customersCreate, retrieve: customersRetrieve },
     checkout: { sessions: { create: sessionsCreate } },
-    subscriptions: { list: subscriptionsList },
+    subscriptions: {
+      list: subscriptionsList,
+      retrieve: subscriptionsRetrieve,
+      update: subscriptionsUpdate,
+    },
     prices: { retrieve: pricesRetrieve },
   } as unknown as Stripe;
   const provider = new StripeBillingProvider({
@@ -116,11 +155,115 @@ function harness(sessionUrl: string | null = null, customerId: string | null = n
     customersRetrieve,
     sessionsCreate,
     subscriptionsList,
+    subscriptionsRetrieve,
+    subscriptionsUpdate,
+    managedSubscription,
     pricesRetrieve,
     attempt,
     session,
   };
 }
+
+describe('Stripe subscription cancellation', () => {
+  const managedUser: DemoUser = {
+    ...user,
+    stripeCustomerId: 'cus_test',
+    stripeSubscriptionId: 'sub_test',
+    subscriptionStatus: 'active',
+    subscriptionCurrentPeriodEnd: new Date('2100-01-01T00:00:00.000Z'),
+  };
+
+  it('schedules cancellation at period end and durably synchronizes Stripe state', async () => {
+    const setup = harness();
+    const requestId = '00000000-0000-4000-8000-000000000123';
+
+    await setup.provider.updateSubscriptionCancellation(managedUser, true, requestId);
+
+    expect(setup.subscriptionsRetrieve).toHaveBeenCalledWith('sub_test');
+    expect(setup.subscriptionsUpdate).toHaveBeenCalledWith(
+      'sub_test',
+      { cancel_at_period_end: true },
+      { idempotencyKey: `foodscope-subscription-cancel-${requestId}` },
+    );
+    expect(setup.repository.syncSubscription).toHaveBeenCalledWith(
+      managedUser.id,
+      expect.objectContaining({ id: 'sub_test', cancel_at_period_end: true }),
+    );
+  });
+
+  it('removes a scheduled cancellation with a separate idempotent action', async () => {
+    const setup = harness();
+    setup.subscriptionsRetrieve.mockResolvedValueOnce({
+      ...setup.managedSubscription,
+      cancel_at_period_end: true,
+    } as unknown as Stripe.Subscription);
+    const requestId = '00000000-0000-4000-8000-000000000124';
+
+    await setup.provider.updateSubscriptionCancellation(managedUser, false, requestId);
+
+    expect(setup.subscriptionsUpdate).toHaveBeenCalledWith(
+      'sub_test',
+      { cancel_at_period_end: false },
+      { idempotencyKey: `foodscope-subscription-resume-${requestId}` },
+    );
+    expect(setup.repository.syncSubscription).toHaveBeenCalledWith(
+      managedUser.id,
+      expect.objectContaining({ cancel_at_period_end: false }),
+    );
+  });
+
+  it('does not repeat the Stripe mutation when the requested state already exists', async () => {
+    const setup = harness();
+    setup.subscriptionsRetrieve.mockResolvedValueOnce({
+      ...setup.managedSubscription,
+      cancel_at_period_end: true,
+    } as unknown as Stripe.Subscription);
+
+    await setup.provider.updateSubscriptionCancellation(
+      { ...managedUser, subscriptionCancelAtPeriodEnd: true },
+      true,
+      '00000000-0000-4000-8000-000000000125',
+    );
+
+    expect(setup.subscriptionsUpdate).not.toHaveBeenCalled();
+    expect(setup.repository.syncSubscription).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    { stripeCustomerId: null },
+    { stripeSubscriptionId: null },
+    { subscriptionStatus: 'canceled' },
+    { subscriptionCurrentPeriodEnd: new Date('2000-01-01T00:00:00.000Z') },
+  ])('rejects an unmanaged local subscription snapshot %#', async (override) => {
+    const setup = harness();
+
+    await expect(setup.provider.updateSubscriptionCancellation(
+      { ...managedUser, ...override },
+      true,
+      '00000000-0000-4000-8000-000000000126',
+    )).rejects.toBeInstanceOf(SubscriptionUnavailableError);
+
+    expect(setup.subscriptionsRetrieve).not.toHaveBeenCalled();
+    expect(setup.subscriptionsUpdate).not.toHaveBeenCalled();
+  });
+
+  it('rejects a Stripe subscription that is not owned by the stored demo customer', async () => {
+    const setup = harness();
+    setup.subscriptionsRetrieve.mockResolvedValueOnce({
+      ...setup.managedSubscription,
+      customer: 'cus_other',
+    } as unknown as Stripe.Subscription);
+
+    await expect(setup.provider.updateSubscriptionCancellation(
+      managedUser,
+      true,
+      '00000000-0000-4000-8000-000000000127',
+    )).rejects.toBeInstanceOf(SubscriptionUnavailableError);
+
+    expect(setup.subscriptionsUpdate).not.toHaveBeenCalled();
+    expect(setup.repository.syncSubscription).not.toHaveBeenCalled();
+  });
+});
 
 describe('Stripe Checkout creation', () => {
   it('disables billing only when every Stripe setting is absent', () => {

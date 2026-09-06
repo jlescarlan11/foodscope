@@ -23,7 +23,12 @@ integration('demo user initialization with MySQL', () => {
       },
     });
     await database.recentSearch.create({
-      data: { userId: DEMO_USER_ID, query: 'preserved', locale: 'en' },
+      data: {
+        userId: DEMO_USER_ID,
+        queryKey: 'preserved'.padEnd(64, '0'),
+        query: 'preserved',
+        locale: 'en',
+      },
     });
     await database.stripeWebhookEvent.create({
       data: { id: 'evt_preserved', type: 'customer.subscription.updated' },

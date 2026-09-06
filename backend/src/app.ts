@@ -12,7 +12,11 @@ import {
   SUPPORTED_LOCALES,
 } from './constants.js';
 import { ProductProviderRateLimitError } from './open-food-facts.js';
-import { CheckoutRateLimitError, CheckoutUnavailableError } from './errors.js';
+import {
+  CheckoutRateLimitError,
+  CheckoutUnavailableError,
+  SubscriptionUnavailableError,
+} from './errors.js';
 import type { BillingProvider, DemoUserState, Nutrition, ProductProvider, Repository } from './types.js';
 
 export type AppDependencies = {
@@ -26,6 +30,14 @@ const searchSchema = z.object({
   requestId: z.string().uuid(),
   q: z.string().trim().min(1).max(120).refine(isUsableText),
   lang: z.enum(SUPPORTED_LOCALES),
+  page: z.number().int().min(1).max(100).default(1),
+});
+
+const PRODUCT_PAGE_SIZE = 4;
+
+const subscriptionCancellationSchema = z.object({
+  requestId: z.string().uuid(),
+  cancelAtPeriodEnd: z.boolean(),
 });
 
 const relevantStripeEventTypes = new Set<Stripe.Event.Type>([
@@ -57,13 +69,23 @@ function publicNutrition(value: Nutrition | undefined) {
 }
 
 function publicAccount(user: DemoUserState, billingAvailable: boolean) {
+  const nutritionAccess = hasNutritionAccess(
+    user.subscriptionStatus,
+    user.subscriptionCurrentPeriodEnd,
+  );
+  const subscriptionManagementAvailable = Boolean(
+    billingAvailable && nutritionAccess && user.stripeSubscriptionId,
+  );
   return {
-    nutritionAccess: hasNutritionAccess(
-      user.subscriptionStatus,
-      user.subscriptionCurrentPeriodEnd,
-    ),
+    nutritionAccess,
     billingAvailable,
     checkoutAvailable: billingAvailable && canStartCheckout(user.subscriptionStatus),
+    subscriptionManagementAvailable,
+    cancellationScheduled: subscriptionManagementAvailable &&
+      user.subscriptionCancelAtPeriodEnd,
+    currentPeriodEnd: nutritionAccess && user.subscriptionCurrentPeriodEnd
+      ? user.subscriptionCurrentPeriodEnd.toISOString()
+      : null,
   };
 }
 
@@ -82,7 +104,10 @@ export function createApp(deps: AppDependencies) {
   };
   app.disable('x-powered-by');
   app.use(helmet());
-  app.use(cors({ origin: deps.config.frontendUrl }));
+  app.use(cors({
+    origin: deps.config.frontendUrl,
+    exposedHeaders: ['Retry-After'],
+  }));
   app.use('/api', (_req, res, next) => {
     res.set('Cache-Control', 'no-store');
     next();
@@ -135,7 +160,11 @@ export function createApp(deps: AppDependencies) {
     }),
   );
 
-  app.post(['/api/products/search', '/api/billing/checkout-session'], requireFrontendOrigin);
+  app.post([
+    '/api/products/search',
+    '/api/billing/checkout-session',
+    '/api/billing/subscription-cancellation',
+  ], requireFrontendOrigin);
   app.use(express.json({ limit: '100kb' }));
 
   app.get('/api/health', (_req, res) => res.json({ ok: true }));
@@ -174,13 +203,20 @@ export function createApp(deps: AppDependencies) {
 
       let results;
       try {
-        results = await deps.products.search(parsed.data.q, parsed.data.lang, controller.signal);
+        results = await deps.products.search(
+          parsed.data.q,
+          parsed.data.lang,
+          controller.signal,
+          parsed.data.page,
+          PRODUCT_PAGE_SIZE,
+        );
       } catch (error) {
         if (controller.signal.aborted) return;
         if (error instanceof ProductProviderRateLimitError) {
-          if (error.retryAfterSeconds !== undefined) {
-            res.set('Retry-After', String(error.retryAfterSeconds));
-          }
+          // Some upstream 429/503 responses omit Retry-After. Keep the API contract
+          // actionable so clients can distinguish backpressure from a generic failure.
+          const retryAfterSeconds = error.retryAfterSeconds ?? 60;
+          res.set('Retry-After', String(retryAfterSeconds));
           res.status(503).json({ error: 'Product search is temporarily unavailable' });
           return;
         }
@@ -190,7 +226,7 @@ export function createApp(deps: AppDependencies) {
       }
       if (controller.signal.aborted) return;
 
-      const publicResults = results.map((product) => ({
+      const publicResults = results.products.map((product) => ({
         product,
         nutrition: publicNutrition(product.nutrition),
       }));
@@ -200,12 +236,14 @@ export function createApp(deps: AppDependencies) {
         currentUser.subscriptionStatus,
         currentUser.subscriptionCurrentPeriodEnd,
       ) : false;
-      await deps.repository.saveSearch(
-        user.id,
-        parsed.data.requestId,
-        parsed.data.q,
-        parsed.data.lang,
-      );
+      if (parsed.data.page === 1) {
+        await deps.repository.saveSearch(
+          user.id,
+          parsed.data.requestId,
+          parsed.data.q,
+          parsed.data.lang,
+        );
+      }
       if (controller.signal.aborted) return;
       if (unlocked && publicResults.some(({ nutrition }) => nutrition !== undefined)) {
         currentUser = await deps.repository.getDemoUser();
@@ -235,6 +273,8 @@ export function createApp(deps: AppDependencies) {
       res.json({
         products,
         account: currentUser ? publicAccount(currentUser, deps.billing !== null) : null,
+        hasMore: results.hasMore,
+        nextPage: results.hasMore ? parsed.data.page + 1 : null,
       });
     }),
   );
@@ -300,6 +340,47 @@ export function createApp(deps: AppDependencies) {
         console.error('Checkout provider failed');
         res.status(502).json({ error: 'Unable to start Checkout' });
       }
+    }),
+  );
+
+  app.post(
+    '/api/billing/subscription-cancellation',
+    asyncRoute(async (req, res) => {
+      const parsed = subscriptionCancellationSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ error: 'A valid subscription change request is required' });
+        return;
+      }
+      if (!deps.billing) {
+        res.status(503).json({ error: 'Stripe is not configured' });
+        return;
+      }
+      const user = await deps.repository.getDemoUserForCheckout();
+      if (!user) {
+        res.status(503).json({ error: 'Demo user is not initialized' });
+        return;
+      }
+      try {
+        await deps.billing.updateSubscriptionCancellation(
+          user,
+          parsed.data.cancelAtPeriodEnd,
+          parsed.data.requestId,
+        );
+      } catch (error) {
+        if (error instanceof SubscriptionUnavailableError) {
+          res.status(409).json({ error: 'Subscription management is unavailable' });
+          return;
+        }
+        console.error('Subscription management provider failed');
+        res.status(502).json({ error: 'Unable to update the subscription' });
+        return;
+      }
+      const currentUser = await deps.repository.getDemoUser();
+      if (!currentUser) {
+        res.status(503).json({ error: 'Demo user is not initialized' });
+        return;
+      }
+      res.json(publicAccount(currentUser, true));
     }),
   );
 

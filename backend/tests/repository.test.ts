@@ -2,7 +2,7 @@ import type Stripe from 'stripe';
 import { describe, expect, it, vi } from 'vitest';
 import { createRepository } from '../src/repository.js';
 import { DEMO_USER_ID } from '../src/constants.js';
-import { CheckoutUnavailableError } from '../src/errors.js';
+import { CheckoutUnavailableError, SubscriptionUnavailableError } from '../src/errors.js';
 import { prisma } from '../src/prisma.js';
 
 function subscription(status: Stripe.Subscription.Status) {
@@ -40,6 +40,39 @@ const createBillingRepository = (database: typeof prisma) =>
   createRepository(database, 'price_test');
 
 describe('Stripe webhook repository', () => {
+  it('preserves the original request ID when refreshing a normalized recent search', async () => {
+    const upsert = vi.fn(async () => ({}));
+    const database = { recentSearch: { upsert } } as unknown as typeof prisma;
+
+    await createRepository(database).saveSearch(
+      DEMO_USER_ID,
+      '00000000-0000-4000-8000-000000000010',
+      '  Oat   Milk  ',
+      'en',
+    );
+
+    expect(upsert).toHaveBeenCalledWith({
+      where: {
+        userId_locale_queryKey: {
+          userId: DEMO_USER_ID,
+          locale: 'en',
+          queryKey: expect.stringMatching(/^[0-9a-f]{64}$/),
+        },
+      },
+      create: {
+        userId: DEMO_USER_ID,
+        requestId: '00000000-0000-4000-8000-000000000010',
+        queryKey: expect.stringMatching(/^[0-9a-f]{64}$/),
+        query: '  Oat   Milk  ',
+        locale: 'en',
+      },
+      update: {
+        query: '  Oat   Milk  ',
+        createdAt: expect.any(Date),
+      },
+    });
+  });
+
   it('selects only workflow-required demo-user columns', async () => {
     const findUnique = vi.fn(async () => null);
     const database = { user: { findUnique } } as unknown as typeof prisma;
@@ -50,7 +83,13 @@ describe('Stripe webhook repository', () => {
 
     expect(findUnique).toHaveBeenNthCalledWith(1, {
       where: { id: DEMO_USER_ID },
-      select: { id: true, subscriptionStatus: true, subscriptionCurrentPeriodEnd: true },
+      select: {
+        id: true,
+        stripeSubscriptionId: true,
+        subscriptionStatus: true,
+        subscriptionCurrentPeriodEnd: true,
+        subscriptionCancelAtPeriodEnd: true,
+      },
     });
     expect(findUnique).toHaveBeenNthCalledWith(2, {
       where: { id: DEMO_USER_ID },
@@ -65,8 +104,44 @@ describe('Stripe webhook repository', () => {
         stripeCheckoutExpiresAt: true,
         subscriptionStatus: true,
         subscriptionCurrentPeriodEnd: true,
+        subscriptionCancelAtPeriodEnd: true,
       },
     });
+  });
+
+  it('durably synchronizes a provider-confirmed period-end cancellation', async () => {
+    const updateMany = vi.fn(async () => ({ count: 1 }));
+    const database = { user: { updateMany } } as unknown as typeof prisma;
+    const current = {
+      ...subscription('active'),
+      cancel_at_period_end: true,
+    } as Stripe.Subscription;
+
+    await createBillingRepository(database).syncSubscription(DEMO_USER_ID, current);
+
+    expect(updateMany).toHaveBeenCalledWith({
+      where: {
+        id: DEMO_USER_ID,
+        stripeCustomerId: 'cus_demo',
+        stripeSubscriptionId: 'sub_current',
+      },
+      data: {
+        subscriptionStatus: 'active',
+        subscriptionCurrentPeriodEnd: new Date(1_800_000_000 * 1000),
+        subscriptionCancelAtPeriodEnd: true,
+      },
+    });
+  });
+
+  it('rejects provider synchronization after the stored subscription mapping changes', async () => {
+    const database = {
+      user: { updateMany: vi.fn(async () => ({ count: 0 })) },
+    } as unknown as typeof prisma;
+
+    await expect(createBillingRepository(database).syncSubscription(
+      DEMO_USER_ID,
+      subscription('active'),
+    )).rejects.toBeInstanceOf(SubscriptionUnavailableError);
   });
 
   it('reserves a stable one-hour Checkout window', async () => {
@@ -883,6 +958,7 @@ describe('Stripe webhook repository', () => {
       data: {
         subscriptionStatus: 'canceled',
         subscriptionCurrentPeriodEnd: null,
+        subscriptionCancelAtPeriodEnd: false,
       },
     });
   });
