@@ -5,17 +5,22 @@ import { LRUCache } from 'lru-cache';
 
 type UnknownRecord = Record<string, unknown>;
 const MAX_RESPONSE_BYTES = 1_000_000;
-const MAX_PRODUCTS = 20;
+const DEFAULT_PAGE_SIZE = 4;
+const MAX_PAGE_SIZE = 20;
 const MAX_PRODUCT_TEXT_CHARACTERS = 500;
 const MAX_RETRY_AFTER_SECONDS = 3_600;
 const DEFAULT_CACHE_MAX = 500;
 const DEFAULT_CACHE_TTL_MS = 10 * 60_000;
 
 type ProviderProduct = Omit<Product, 'nutritionLocked'>;
+type ProviderSearchResult = {
+  products: ProviderProduct[];
+  hasMore: boolean;
+};
 type InFlightSearch = {
   abandoned: boolean;
   controller: AbortController;
-  promise: Promise<readonly ProviderProduct[]>;
+  promise: Promise<ProviderSearchResult>;
   settled: boolean;
   waiters: number;
 };
@@ -132,13 +137,26 @@ async function discardResponse(response: Response) {
   await response.body?.cancel().catch(() => undefined);
 }
 
-export function canonicalProductSearchKey(query: string, locale: Locale) {
+export function canonicalProductSearchKey(
+  query: string,
+  locale: Locale,
+  page = 1,
+  pageSize = DEFAULT_PAGE_SIZE,
+) {
   const canonicalQuery = query
     .normalize('NFKC')
     .trim()
     .replace(/\s+/gu, ' ')
     .toLocaleLowerCase(locale);
-  return `${locale}\u0000${canonicalQuery}`;
+  return `${locale}\u0000${canonicalQuery}\u0000${page}\u0000${pageSize}`;
+}
+
+function literalProductSearchQuery(query: string) {
+  return query
+    .trim()
+    .split(/\s+/u)
+    .map((term) => `"${term.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`)
+    .join(' ');
 }
 
 function cloneProducts(products: readonly ProviderProduct[]): ProviderProduct[] {
@@ -155,6 +173,13 @@ function cloneProducts(products: readonly ProviderProduct[]): ProviderProduct[] 
         }
       : {}),
   }));
+}
+
+function cloneSearchResult(result: ProviderSearchResult): ProviderSearchResult {
+  return {
+    products: cloneProducts(result.products),
+    hasMore: result.hasMore,
+  };
 }
 
 export function normalizeProduct(raw: unknown, locale: Locale): Omit<Product, 'nutritionLocked'> | null {
@@ -187,7 +212,7 @@ export function normalizeProduct(raw: unknown, locale: Locale): Omit<Product, 'n
 
 export class OpenFoodFactsProvider implements ProductProvider {
   private readonly requestTimestamps: number[] = [];
-  private readonly cache: LRUCache<string, readonly ProviderProduct[]>;
+  private readonly cache: LRUCache<string, ProviderSearchResult>;
   private readonly inFlight = new Map<string, InFlightSearch>();
 
   constructor(
@@ -217,15 +242,25 @@ export class OpenFoodFactsProvider implements ProductProvider {
     this.requestTimestamps.push(now);
   }
 
-  async search(query: string, locale: Locale, signal?: AbortSignal) {
+  async search(
+    query: string,
+    locale: Locale,
+    signal?: AbortSignal,
+    page = 1,
+    pageSize = DEFAULT_PAGE_SIZE,
+  ) {
     signal?.throwIfAborted();
-    const key = canonicalProductSearchKey(query, locale);
+    const safePage = Number.isSafeInteger(page) && page >= 1 ? page : 1;
+    const safePageSize = Number.isSafeInteger(pageSize) && pageSize >= 1
+      ? Math.min(pageSize, MAX_PAGE_SIZE)
+      : DEFAULT_PAGE_SIZE;
+    const key = canonicalProductSearchKey(query, locale, safePage, safePageSize);
     const remainingTtl = this.cache.getRemainingTTL(key);
     if (remainingTtl <= 0) {
       this.cache.delete(key);
     } else {
       const cached = this.cache.get(key);
-      if (cached) return cloneProducts(cached);
+      if (cached) return cloneSearchResult(cached);
     }
 
     let shared = this.inFlight.get(key);
@@ -234,16 +269,22 @@ export class OpenFoodFactsProvider implements ProductProvider {
       shared = {
         abandoned: false,
         controller,
-        promise: Promise.resolve([]),
+        promise: Promise.resolve({ products: [], hasMore: false }),
         settled: false,
         waiters: 0,
       };
       const entry = shared;
-      entry.promise = this.searchUpstream(query, locale, controller.signal)
-        .then((products) => {
-          const cachedProducts = cloneProducts(products);
-          if (!entry.abandoned) this.cache.set(key, cachedProducts);
-          return cachedProducts;
+      entry.promise = this.searchUpstream(
+        query,
+        locale,
+        controller.signal,
+        safePage,
+        safePageSize,
+      )
+        .then((result) => {
+          const cachedResult = cloneSearchResult(result);
+          if (!entry.abandoned) this.cache.set(key, cachedResult);
+          return cachedResult;
         })
         .finally(() => {
           entry.settled = true;
@@ -267,11 +308,11 @@ export class OpenFoodFactsProvider implements ProductProvider {
       : undefined;
 
     try {
-      const products = aborted
+      const result = aborted
         ? await Promise.race([shared.promise, aborted])
         : await shared.promise;
       signal?.throwIfAborted();
-      return cloneProducts(products);
+      return cloneSearchResult(result);
     } finally {
       if (signal && abortListener) signal.removeEventListener('abort', abortListener);
       shared.waiters -= 1;
@@ -283,36 +324,43 @@ export class OpenFoodFactsProvider implements ProductProvider {
     }
   }
 
-  private async searchUpstream(query: string, locale: Locale, signal: AbortSignal) {
-    const params = new URLSearchParams({
-      search_terms: query,
-      search_simple: '1',
-      action: 'process',
-      json: '1',
-      lc: locale,
-      page_size: String(MAX_PRODUCTS),
-      fields: [
-        'code',
-        'lang',
-        'product_name',
-        `product_name_${locale}`,
-        'brands',
-        'image_front_url',
-        'image_url',
-        'nutrition_data_per',
-        'nutriments',
-      ].join(','),
+  private async searchUpstream(
+    query: string,
+    locale: Locale,
+    signal: AbortSignal,
+    page: number,
+    pageSize: number,
+  ) {
+    const fields = [
+      'code',
+      'lang',
+      'product_name',
+      `product_name_${locale}`,
+      'brands',
+      'image_front_url',
+      'image_url',
+      'nutrition_data_per',
+      'nutriments',
+    ];
+    const requestBody = JSON.stringify({
+      q: literalProductSearchQuery(query),
+      page,
+      page_size: pageSize,
+      langs: [locale],
+      fields,
     });
-    // Open Food Facts v2 only supports structured filters; plain-text search remains on this legacy endpoint.
     const request = () => {
       signal.throwIfAborted();
       this.reserveRequest();
-      return this.fetcher(`https://world.openfoodfacts.org/cgi/search.pl?${params}`, {
+      return this.fetcher('https://search.openfoodfacts.org/search', {
+        method: 'POST',
         headers: {
           'User-Agent': this.userAgent,
           Accept: 'application/json',
           'Accept-Language': locale,
+          'Content-Type': 'application/json',
         },
+        body: requestBody,
         signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
       });
     };
@@ -339,18 +387,34 @@ export class OpenFoodFactsProvider implements ProductProvider {
       throw new Error(`Open Food Facts returned ${response.status}`);
     }
     const payload = await readBoundedJson(response);
-    if (!isRecord(payload) || !Array.isArray(payload.products)) {
+    if (!isRecord(payload) || !Array.isArray(payload.hits)) {
       throw new Error('Open Food Facts returned malformed data');
     }
     const products: Array<Omit<Product, 'nutritionLocked'>> = [];
     const seenIds = new Set<string>();
-    for (const rawProduct of payload.products) {
-      const product = normalizeProduct(rawProduct, locale);
+    for (const rawProduct of payload.hits) {
+      if (!isRecord(rawProduct)) continue;
+      const brands = Array.isArray(rawProduct.brands)
+        ? rawProduct.brands.filter((brand): brand is string => typeof brand === 'string').join(', ')
+        : rawProduct.brands;
+      const product = normalizeProduct({
+        ...rawProduct,
+        brands,
+      }, locale);
       if (!product || seenIds.has(product.id)) continue;
       seenIds.add(product.id);
       products.push(product);
-      if (products.length === MAX_PRODUCTS) break;
+      if (products.length === pageSize) break;
     }
-    return products;
+    const upstreamPage = Number.isSafeInteger(payload.page) ? payload.page as number : page;
+    const upstreamPageCount = Number.isSafeInteger(payload.page_count)
+      ? payload.page_count as number
+      : null;
+    return {
+      products,
+      hasMore: upstreamPageCount !== null
+        ? upstreamPage < upstreamPageCount
+        : payload.hits.length >= pageSize,
+    };
   }
 }

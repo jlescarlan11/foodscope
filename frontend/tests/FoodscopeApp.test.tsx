@@ -5,10 +5,20 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FoodscopeApp, REQUEST_TIMEOUT_MS } from '@/components/FoodscopeApp';
 
 vi.mock('next/image', () => ({
-  default: ({ src, alt, sizes, onError }: {
-    src: string; alt: string; sizes?: string; onError?: () => void;
+  default: ({ src, alt, sizes, loading, decoding, onError, onLoad }: {
+    src: string; alt: string; sizes?: string; loading?: string; decoding?: string;
+    onError?: () => void; onLoad?: () => void;
   }) => (
-    <button type="button" aria-label={alt} data-image-src={src} data-sizes={sizes} onClick={onError} />
+    <button
+      type="button"
+      aria-label={alt}
+      data-image-src={src}
+      data-sizes={sizes}
+      data-loading={loading}
+      data-decoding={decoding}
+      onClick={onError}
+      onDoubleClick={onLoad}
+    />
   ),
 }));
 
@@ -16,10 +26,17 @@ const accountState = (overrides: Partial<{
   nutritionAccess: boolean;
   billingAvailable: boolean;
   checkoutAvailable: boolean;
+  subscriptionManagementAvailable: boolean;
+  cancellationScheduled: boolean;
+  currentPeriodEnd: string | null;
 }> = {}) => ({
   nutritionAccess: false,
   billingAvailable: true,
   checkoutAvailable: true,
+  subscriptionManagementAvailable: overrides.nutritionAccess === true &&
+    overrides.billingAvailable !== false,
+  cancellationScheduled: false,
+  currentPeriodEnd: overrides.nutritionAccess === true ? '2100-01-01T00:00:00.000Z' : null,
   ...overrides,
 });
 const checkoutMarkerKey = 'foodscope.checkout-initiated-at';
@@ -52,11 +69,17 @@ describe('Foodscope locale switching', () => {
     render(<FoodscopeApp />);
 
     await screen.findByText('Free plan');
+    const searchTips = screen.getByRole('region', { name: 'Find the right product faster.' });
+    expect(searchTips.querySelectorAll('li')).toHaveLength(3);
+    expect(screen.getByText('Use a product name')).toBeInTheDocument();
+    expect(screen.queryByText('Start with a product you are curious about.')).not.toBeInTheDocument();
     expect(fetchMock.mock.calls.find(([url]) => String(url).includes('/api/user'))?.[1])
       .toMatchObject({ cache: 'no-store' });
 
     await userEvent.selectOptions(screen.getByLabelText('Language'), 'de');
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Wissen, wasdrin ist.');
+    expect(screen.getByRole('heading', { level: 2, name: 'Finde schneller das richtige Produkt.' }))
+      .toBeInTheDocument();
     expect(screen.getByText(/Angaben können unvollständig oder falsch sein/)).toBeInTheDocument();
     expect(document.querySelector('.attribution')).toHaveTextContent('Enthält Informationen von');
     await userEvent.type(screen.getByLabelText('Produkte suchen'), 'Hafermilch');
@@ -121,6 +144,36 @@ describe('Foodscope locale switching', () => {
       'href',
       'https://creativecommons.org/licenses/by-sa/3.0/',
     );
+    const footerNavigation = screen.getByRole('navigation', { name: 'Footer' });
+    expect(footerNavigation).toContainElement(screen.getByRole('link', { name: 'Search products' }));
+    expect(screen.getByRole('link', { name: 'Search products' })).toHaveAttribute('href', '#search');
+    expect(screen.getByRole('link', { name: 'Foodscope Plus' })).toHaveAttribute('href', '#plus');
+    expect(screen.queryByRole('link', { name: 'Back to top' })).not.toBeInTheDocument();
+  });
+
+  it('reveals a fixed back-to-top button after scrolling and respects reduced motion', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const body = String(input).includes('/api/user')
+        ? accountState()
+        : { searches: [] };
+      return { ok: true, json: async () => body } as Response;
+    }));
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })));
+    const scrollTo = vi.fn();
+    vi.stubGlobal('scrollTo', scrollTo);
+    render(<FoodscopeApp />);
+
+    const backToTop = screen.getByText('Back to top', { selector: 'button' });
+    expect(backToTop).toHaveAttribute('aria-hidden', 'true');
+
+    vi.stubGlobal('scrollY', 600);
+    fireEvent.scroll(window);
+    expect(backToTop).toHaveClass('back-to-top-visible');
+    expect(backToTop).toHaveAttribute('aria-hidden', 'false');
+
+    await userEvent.click(backToTop);
+    expect(scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'auto' });
+    expect(document.querySelector('#content')).toHaveFocus();
   });
 
   it.each([
@@ -288,17 +341,21 @@ describe('Foodscope locale switching', () => {
       return pendingSearch;
     });
     vi.stubGlobal('fetch', fetchMock);
-    render(<FoodscopeApp />);
+    const view = render(<FoodscopeApp />);
 
     const recentSearch = await screen.findByRole('button', { name: 'oats EN' });
     await userEvent.dblClick(recentSearch);
     expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/api/products/search')))
       .toHaveLength(1);
+    expect(view.container.querySelector('.results-section')).toHaveAttribute('aria-busy', 'true');
+    expect(view.container.querySelectorAll('.skeleton-card')).toHaveLength(4);
+    expect(screen.getByText('Searching…', { selector: '.sr-only' })).toBeInTheDocument();
 
     await act(async () => resolveSearch({
       ok: true,
       json: async () => ({ products: [], account: accountState() }),
     } as Response));
+    expect(view.container.querySelectorAll('.skeleton-card')).toHaveLength(0);
   });
 
   it('reuses the operation id when retrying an uncertain search result', async () => {
@@ -413,13 +470,13 @@ describe('Foodscope locale switching', () => {
     }));
     render(<FoodscopeApp />);
 
-    expect(await screen.findByText('Nutrition unlocked')).toBeInTheDocument();
+    expect(await screen.findByText('Foodscope Plus', { selector: '#plan-title' })).toBeInTheDocument();
     await userEvent.type(screen.getByLabelText('Search products'), 'oats');
     await userEvent.click(screen.getByRole('button', { name: /^Search/ }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('We could not complete that search');
     expect(screen.getByText('Plan status unavailable')).toBeInTheDocument();
-    expect(screen.queryByText('Nutrition unlocked')).not.toBeInTheDocument();
+    expect(screen.queryByText('Foodscope Plus', { selector: '#plan-title' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Locked result' })).not.toBeInTheDocument();
   });
 
@@ -435,13 +492,13 @@ describe('Foodscope locale switching', () => {
     }));
     render(<FoodscopeApp />);
 
-    expect(await screen.findByText('Nutrition unlocked')).toBeInTheDocument();
+    expect(await screen.findByText('Foodscope Plus', { selector: '#plan-title' })).toBeInTheDocument();
     await userEvent.type(screen.getByLabelText('Search products'), 'oats');
     await userEvent.click(screen.getByRole('button', { name: /^Search/ }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('We could not complete that search');
     expect(screen.getByText('Free plan')).toBeInTheDocument();
-    expect(screen.queryByText('Nutrition unlocked')).not.toBeInTheDocument();
+    expect(screen.queryByText('Foodscope Plus', { selector: '#plan-title' })).not.toBeInTheDocument();
   });
 
   it('renders the explicit normalized nutrition value and unit', async () => {
@@ -469,6 +526,205 @@ describe('Foodscope locale switching', () => {
     expect(screen.getByText('1.5 g')).toBeInTheDocument();
   });
 
+  it('keeps the hero stable and scrolls to the loading results with motion preferences', async () => {
+    const scrollIntoView = vi.fn();
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })));
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      const body = url.includes('/api/user')
+        ? accountState()
+        : url.includes('/api/searches/recent')
+          ? { searches: [] }
+          : { products: [], account: accountState() };
+      return { ok: true, json: async () => body } as Response;
+    }));
+    const view = render(<FoodscopeApp />);
+    const hero = view.container.querySelector('.hero');
+    const results = view.container.querySelector('.results-section') as HTMLElement;
+    Object.defineProperty(results, 'scrollIntoView', { value: scrollIntoView });
+
+    await screen.findByText('Free plan');
+    expect(hero).toHaveClass('hero');
+    expect(hero).not.toHaveClass('hero-with-results');
+    expect(scrollIntoView).not.toHaveBeenCalled();
+
+    await userEvent.type(screen.getByLabelText('Search products'), 'oats');
+    await userEvent.click(screen.getByRole('button', { name: /^Search/ }));
+
+    expect(await screen.findByText('No matching products found. Try another term.'))
+      .toBeInTheDocument();
+    expect(hero).not.toHaveClass('hero-with-results');
+    expect(scrollIntoView).toHaveBeenCalledOnce();
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'auto', block: 'start' });
+  });
+
+  it('requests search results in scroll-driven pages of four with a manual fallback', async () => {
+    let intersectionCallback!: IntersectionObserverCallback;
+    const observe = vi.fn();
+    const disconnect = vi.fn();
+    vi.stubGlobal('IntersectionObserver', vi.fn((callback: IntersectionObserverCallback) => {
+      intersectionCallback = callback;
+      return {
+        root: null,
+        rootMargin: '0px 0px -35% 0px',
+        thresholds: [0],
+        observe,
+        unobserve: vi.fn(),
+        disconnect,
+        takeRecords: () => [],
+      } as IntersectionObserver;
+    }));
+    const products = Array.from({ length: 10 }, (_, index) => ({
+      id: `product-${index + 1}`,
+      name: `Product ${index + 1}`,
+      brand: null,
+      image: null,
+      nutritionLocked: true,
+    }));
+    const requestedPages: number[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      let body;
+      if (url.includes('/api/user')) body = accountState();
+      else if (url.includes('/api/searches/recent')) body = { searches: [] };
+      else {
+        const requestBody = JSON.parse(String(init?.body)) as { page: number };
+        requestedPages.push(requestBody.page);
+        const start = (requestBody.page - 1) * 4;
+        const pageProducts = products.slice(start, start + 4);
+        const hasMore = start + pageProducts.length < products.length;
+        body = {
+          products: pageProducts,
+          account: accountState(),
+          hasMore,
+          nextPage: hasMore ? requestBody.page + 1 : null,
+        };
+      }
+      return { ok: true, json: async () => body } as Response;
+    }));
+    render(<FoodscopeApp />);
+
+    await userEvent.type(screen.getByLabelText('Search products'), 'snacks');
+    await userEvent.click(screen.getByRole('button', { name: /^Search/ }));
+
+    expect(await screen.findByRole('heading', { level: 3, name: 'Product 4' })).toBeInTheDocument();
+    expect(screen.getAllByRole('heading', { level: 3 })).toHaveLength(4);
+    expect(screen.queryByText(/products shown/i)).not.toBeInTheDocument();
+    expect(requestedPages).toEqual([1]);
+    expect(observe).toHaveBeenCalledOnce();
+
+    await act(async () => intersectionCallback(
+      [{ isIntersecting: true } as IntersectionObserverEntry],
+      {} as IntersectionObserver,
+    ));
+    expect(await screen.findByRole('heading', { level: 3, name: 'Product 8' })).toBeInTheDocument();
+    expect(screen.getAllByRole('heading', { level: 3 })).toHaveLength(8);
+    expect(requestedPages).toEqual([1, 2]);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Load more' }));
+    expect(await screen.findByRole('heading', { level: 3, name: 'Product 10' })).toBeInTheDocument();
+    expect(screen.getAllByRole('heading', { level: 3 })).toHaveLength(10);
+    expect(requestedPages).toEqual([1, 2, 3]);
+    expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument();
+    expect(disconnect).toHaveBeenCalled();
+  });
+
+  it('removes previously loaded nutrition when a later page observes revocation', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/api/user')) {
+        return {
+          ok: true,
+          json: async () => accountState({ nutritionAccess: true, checkoutAvailable: false }),
+        } as Response;
+      }
+      if (url.includes('/api/searches/recent')) {
+        return { ok: true, json: async () => ({ searches: [] }) } as Response;
+      }
+      const page = (JSON.parse(String(init?.body)) as { page: number }).page;
+      return {
+        ok: true,
+        json: async () => page === 1
+          ? {
+              products: [{
+                id: 'entitled', name: 'Entitled result', brand: null, image: null,
+                nutritionLocked: false, nutrition: { fat: { value: 2, unit: 'g' } },
+              }],
+              account: accountState({ nutritionAccess: true, checkoutAvailable: false }),
+              hasMore: true,
+              nextPage: 2,
+            }
+          : {
+              products: [{
+                id: 'revoked', name: 'Revoked result', brand: null, image: null,
+                nutritionLocked: false, nutrition: { fat: { value: 9, unit: 'g' } },
+              }],
+              account: accountState(),
+              hasMore: false,
+              nextPage: null,
+            },
+      } as Response;
+    }));
+    render(<FoodscopeApp />);
+
+    await userEvent.type(screen.getByLabelText('Search products'), 'spread');
+    await userEvent.click(screen.getByRole('button', { name: /^Search/ }));
+    expect(await screen.findByText('2 g')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Load more' }));
+
+    expect(await screen.findByRole('heading', { name: 'Revoked result' })).toBeInTheDocument();
+    expect(screen.queryByText('2 g')).not.toBeInTheDocument();
+    expect(screen.getByText('Free plan')).toBeInTheDocument();
+    expect(screen.getAllByText('Nutrition is locked')).toHaveLength(2);
+  });
+
+  it('invalidates plan state and loaded nutrition for a malformed later-page account', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/api/user')) {
+        return {
+          ok: true,
+          json: async () => accountState({ nutritionAccess: true, checkoutAvailable: false }),
+        } as Response;
+      }
+      if (url.includes('/api/searches/recent')) {
+        return { ok: true, json: async () => ({ searches: [] }) } as Response;
+      }
+      const page = (JSON.parse(String(init?.body)) as { page: number }).page;
+      return {
+        ok: true,
+        json: async () => page === 1
+          ? {
+              products: [{
+                id: 'entitled', name: 'Entitled result', brand: null, image: null,
+                nutritionLocked: false, nutrition: { fat: { value: 2, unit: 'g' } },
+              }],
+              account: accountState({ nutritionAccess: true, checkoutAvailable: false }),
+              hasMore: true,
+              nextPage: 2,
+            }
+          : {
+              products: [],
+              account: { nutritionAccess: false },
+              hasMore: false,
+              nextPage: null,
+            },
+      } as Response;
+    }));
+    render(<FoodscopeApp />);
+
+    await userEvent.type(screen.getByLabelText('Search products'), 'spread');
+    await userEvent.click(screen.getByRole('button', { name: /^Search/ }));
+    expect(await screen.findByText('2 g')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Load more' }));
+
+    expect(await screen.findByRole('button', { name: 'Retry plan status' })).toBeInTheDocument();
+    expect(screen.queryByText('2 g')).not.toBeInTheDocument();
+    expect(screen.getByText('Nutrition is locked')).toBeInTheDocument();
+  });
+
   it('synchronizes account state when a search observes entitlement revocation', async () => {
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
@@ -488,7 +744,7 @@ describe('Foodscope locale switching', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<FoodscopeApp />);
 
-    expect(await screen.findByText('Nutrition unlocked')).toBeInTheDocument();
+    expect(await screen.findByText('Foodscope Plus', { selector: '#plan-title' })).toBeInTheDocument();
     await userEvent.type(screen.getByLabelText('Search products'), 'spread');
     await userEvent.click(screen.getByRole('button', { name: /^Search/ }));
 
@@ -536,7 +792,7 @@ describe('Foodscope locale switching', () => {
       json: async () => accountState({ nutritionAccess: true, checkoutAvailable: false }),
     } as Response));
     expect(screen.getByText('Free plan')).toBeInTheDocument();
-    expect(screen.queryByText('Nutrition unlocked')).not.toBeInTheDocument();
+    expect(screen.queryByText('Foodscope Plus', { selector: '#plan-title' })).not.toBeInTheDocument();
   });
 
   it('rechecks server entitlement after Checkout without trusting the success URL', async () => {
@@ -563,7 +819,7 @@ describe('Foodscope locale switching', () => {
     render(<FoodscopeApp />);
     await act(async () => vi.advanceTimersByTimeAsync(3_000));
 
-    expect(screen.getByText('Nutrition unlocked')).toBeInTheDocument();
+    expect(screen.getByText('Foodscope Plus', { selector: '#plan-title' })).toBeInTheDocument();
     expect(accountReads).toBe(3);
     expect(window.location.search).toBe('');
   });
@@ -684,6 +940,92 @@ describe('Foodscope locale switching', () => {
     expect(window.sessionStorage.getItem(checkoutMarkerKey)).toBeNull();
   });
 
+  it('confirms, schedules, and reverses cancellation through the billing API', async () => {
+    let cancellationScheduled = false;
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/api/searches/recent')) {
+        return { ok: true, json: async () => ({ searches: [] }) } as Response;
+      }
+      if (url.includes('/api/billing/subscription-cancellation')) {
+        const body = JSON.parse(String(init?.body)) as {
+          requestId: string;
+          cancelAtPeriodEnd: boolean;
+        };
+        expect(body.requestId).toMatch(/^[0-9a-f-]{36}$/);
+        cancellationScheduled = body.cancelAtPeriodEnd;
+      }
+      return {
+        ok: true,
+        json: async () => accountState({
+          nutritionAccess: true,
+          checkoutAvailable: false,
+          subscriptionManagementAvailable: true,
+          cancellationScheduled,
+          currentPeriodEnd: '2100-01-01T00:00:00.000Z',
+        }),
+      } as Response;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<FoodscopeApp />);
+
+    const cancelButton = await screen.findByRole('button', { name: 'Cancel subscription' });
+    await userEvent.click(cancelButton);
+    const dialog = screen.getByRole('alertdialog', { name: 'Cancel Foodscope Plus?' });
+    expect(dialog).toHaveTextContent('keep nutrition access through Jan 1, 2100');
+    expect(fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes('/api/billing/subscription-cancellation'))).toHaveLength(0);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel at period end' }));
+    expect(await screen.findByText(/Cancellation scheduled\. Nutrition stays unlocked/))
+      .toHaveAttribute('role', 'status');
+    expect(screen.getByText('Foodscope Plus', { selector: '#plan-title' })).toBeInTheDocument();
+    expect(screen.getByText('Access through Jan 1, 2100 · No further renewal')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Keep subscription' }));
+    expect(await screen.findByText(/Cancellation removed\. Your subscription will renew/))
+      .toHaveAttribute('role', 'status');
+    expect(screen.getByText('Foodscope Plus', { selector: '#plan-title' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cancel subscription' })).toBeInTheDocument();
+
+    const changes = fetchMock.mock.calls
+      .filter(([url]) => String(url).includes('/api/billing/subscription-cancellation'))
+      .map(([, init]) => JSON.parse(String(init?.body)).cancelAtPeriodEnd);
+    expect(changes).toEqual([true, false]);
+  });
+
+  it('does not fake a cancellation state when the billing API cannot confirm it', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('/api/searches/recent')) {
+        return { ok: true, json: async () => ({ searches: [] }) } as Response;
+      }
+      if (url.includes('/api/billing/subscription-cancellation')) {
+        return { ok: false, status: 502, headers: new Headers() } as Response;
+      }
+      return {
+        ok: true,
+        json: async () => accountState({
+          nutritionAccess: true,
+          checkoutAvailable: false,
+          subscriptionManagementAvailable: true,
+        }),
+      } as Response;
+    }));
+    render(<FoodscopeApp />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Cancel subscription' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel at period end' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'We could not confirm the subscription change',
+    );
+    expect(screen.getByRole('alertdialog', { name: 'Cancel Foodscope Plus?' }))
+      .toBeInTheDocument();
+    expect(screen.getByText('Foodscope Plus', { selector: '#plan-title' })).toBeInTheDocument();
+    expect(screen.queryByText('Cancellation scheduled')).not.toBeInTheDocument();
+  });
+
   it('does not offer Checkout before authoritative account state loads', async () => {
     let resolveAccount!: (response: Response) => void;
     const account = new Promise<Response>((resolve) => { resolveAccount = resolve; });
@@ -701,7 +1043,10 @@ describe('Foodscope locale switching', () => {
       ok: true,
       json: async () => accountState(),
     } as Response));
-    expect(await screen.findByRole('button', { name: 'Unlock nutrition' })).toBeInTheDocument();
+    const upgrade = await screen.findByRole('button', { name: 'Unlock nutrition' });
+    expect(screen.getByText('Free plan', { selector: '#plan-title' })).toBeInTheDocument();
+    expect(upgrade.closest('aside')?.parentElement).toHaveClass('search-workbench');
+    expect(document.querySelector('.wordmark-plus-badge')).not.toBeInTheDocument();
   });
 
   it('announces asynchronous plan-state changes to assistive technology', async () => {
@@ -714,7 +1059,9 @@ describe('Foodscope locale switching', () => {
 
     render(<FoodscopeApp />);
 
-    expect(await screen.findByRole('status')).toHaveTextContent('Nutrition unlocked');
+    const planStatus = await screen.findByText('Foodscope Plus', { selector: '#plan-title' });
+    expect(planStatus.closest('aside')?.parentElement).toHaveClass('search-workbench');
+    expect(document.querySelector('.wordmark-plus-badge')).toHaveTextContent('PLUS');
   });
 
   it('offers a retry instead of Checkout when account state cannot be loaded', async () => {
@@ -734,7 +1081,7 @@ describe('Foodscope locale switching', () => {
     expect(screen.queryByRole('button', { name: 'Unlock nutrition' })).not.toBeInTheDocument();
 
     await userEvent.click(retry);
-    expect(await screen.findByText('Nutrition unlocked')).toBeInTheDocument();
+    expect(await screen.findByText('Foodscope Plus', { selector: '#plan-title' })).toBeInTheDocument();
     expect(accountReads).toBe(2);
   });
 
@@ -880,7 +1227,10 @@ describe('Foodscope locale switching', () => {
     fireEvent.click(submit);
     await act(async () => Promise.resolve());
 
-    expect(screen.getByRole('alert')).toHaveTextContent('Search is temporarily paused');
+    const expectedDelay = retryAfter === '37' ? 'in 37 seconds' : 'in 60 minutes';
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      `Search rate limit exceeded. Please try again ${expectedDelay}.`,
+    );
     expect(submit).toBeDisabled();
     expect(screen.getByRole('button', { name: /milk EN/ })).toBeDisabled();
     expect(fetchMock.mock.calls.filter(([url]) =>
@@ -1125,7 +1475,7 @@ describe('Foodscope locale switching', () => {
 
     await userEvent.click(await screen.findByRole('button', { name: 'Unlock nutrition' }));
 
-    expect(await screen.findByText('Nutrition unlocked')).toBeInTheDocument();
+    expect(await screen.findByText('Foodscope Plus', { selector: '#plan-title' })).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(accountReads).toBe(2);
     expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/api/billing/checkout-session')))
@@ -1182,8 +1532,13 @@ describe('Foodscope locale switching', () => {
     const image = await screen.findByRole('button', { name: 'Oats' });
     expect(image).toHaveAttribute(
       'data-sizes',
-      '(max-width: 620px) 100vw, (max-width: 900px) 50vw, 33vw',
+      '(max-width: 680px) 100vw, (max-width: 1080px) 36vw, 250px',
     );
+    expect(image).toHaveAttribute('data-loading', 'lazy');
+    expect(image).toHaveAttribute('data-decoding', 'async');
+    expect(document.querySelector('.product-image-skeleton')).toBeInTheDocument();
+    fireEvent.doubleClick(image);
+    expect(document.querySelector('.product-image-skeleton')).not.toBeInTheDocument();
     await userEvent.click(image);
 
     expect(screen.queryByRole('button', { name: 'Oats' })).not.toBeInTheDocument();

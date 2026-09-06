@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import type Stripe from 'stripe';
+import { createHash } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { DEMO_USER_EMAIL, DEMO_USER_ID } from '../src/constants.js';
 import { createRepository } from '../src/repository.js';
@@ -362,7 +363,13 @@ integration('Repository with MySQL', () => {
     const createdAt = new Date('2030-01-01T00:00:00.000Z');
     for (let index = 1; index <= 9; index += 1) {
       await database.recentSearch.create({
-        data: { userId: DEMO_USER_ID, query: `query-${index}`, locale: 'en', createdAt },
+        data: {
+          userId: DEMO_USER_ID,
+          queryKey: String(index).padStart(64, '0'),
+          query: `query-${index}`,
+          locale: 'en',
+          createdAt,
+        },
       });
     }
 
@@ -371,8 +378,9 @@ integration('Repository with MySQL', () => {
     );
   });
 
-  it('stores one history row for concurrent retries but preserves separate operations', async () => {
+  it('stores one recent row per normalized query and locale', async () => {
     const retryId = '00000000-0000-4000-8000-000000000010';
+    const retryQueryKey = createHash('sha256').update('retry query', 'utf8').digest('hex');
     await Promise.all([
       subject.saveSearch(DEMO_USER_ID, retryId, 'retry query', 'en'),
       subject.saveSearch(DEMO_USER_ID, retryId, 'retry query', 'en'),
@@ -380,15 +388,38 @@ integration('Repository with MySQL', () => {
     await subject.saveSearch(
       DEMO_USER_ID,
       '00000000-0000-4000-8000-000000000011',
-      'retry query',
+      '  RETRY   query  ',
       'en',
+    );
+    await subject.saveSearch(
+      DEMO_USER_ID,
+      '00000000-0000-4000-8000-000000000012',
+      'retry query',
+      'fr',
     );
     await expect(subject.saveSearch(DEMO_USER_ID, retryId, 'different query', 'en'))
       .rejects.toMatchObject({ code: 'P2002' });
 
     await expect(database.recentSearch.count({
-      where: { userId: DEMO_USER_ID, query: 'retry query' },
+      where: { userId: DEMO_USER_ID, queryKey: retryQueryKey },
     })).resolves.toBe(2);
+  });
+
+  it('keeps the query-key expansion compatible with the current-base writer', async () => {
+    const requestId = '00000000-0000-4000-8000-000000000013';
+
+    await database.$executeRaw`
+      INSERT INTO RecentSearch (userId, requestId, query, locale)
+      VALUES (${DEMO_USER_ID}, ${requestId}, ${'legacy writer query'}, ${'en'})
+    `;
+
+    await expect(database.recentSearch.findUniqueOrThrow({
+      where: { userId_requestId: { userId: DEMO_USER_ID, requestId } },
+    })).resolves.toMatchObject({
+      query: 'legacy writer query',
+      locale: 'en',
+      queryKey: null,
+    });
   });
 
   it('reserves and reuses one Checkout attempt under concurrency', async () => {
@@ -503,10 +534,29 @@ integration('Repository with MySQL', () => {
 
     await expect(database.user.findUniqueOrThrow({ where: { id: DEMO_USER_ID } }))
       .resolves.toMatchObject({
-        stripeCustomerId: 'cus_integration',
+        stripeCustomerId: null,
+        stripeSubscriptionId: null,
         subscriptionStatus: 'canceled',
         subscriptionCurrentPeriodEnd: null,
       });
+
+    await expect(subject.syncSubscription(DEMO_USER_ID, subscription('active')))
+      .rejects.toThrow('Subscription management is unavailable');
+    await expect(database.user.findUniqueOrThrow({ where: { id: DEMO_USER_ID } }))
+      .resolves.toMatchObject({
+        stripeCustomerId: null,
+        stripeSubscriptionId: null,
+        subscriptionStatus: 'canceled',
+        subscriptionCurrentPeriodEnd: null,
+      });
+
+    await database.user.update({
+      where: { id: DEMO_USER_ID },
+      data: {
+        stripeCustomerId: 'cus_integration',
+        stripeSubscriptionId: 'sub_replacement',
+      },
+    });
   });
 
   it('releases a matching Checkout attempt as soon as Stripe expires its Session', async () => {

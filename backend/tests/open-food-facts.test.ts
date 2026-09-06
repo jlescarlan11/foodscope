@@ -166,21 +166,26 @@ describe('Open Food Facts normalization', () => {
       .toBe(canonicalProductSearchKey('pork belly', 'en'));
     expect(canonicalProductSearchKey('PORK BELLY', 'fr'))
       .not.toBe(canonicalProductSearchKey('pork belly', 'en'));
+    expect(canonicalProductSearchKey('pork belly', 'en', 1, 4))
+      .not.toBe(canonicalProductSearchKey('pork belly', 'en', 2, 4));
+    expect(canonicalProductSearchKey('pork belly', 'en', 1, 4))
+      .not.toBe(canonicalProductSearchKey('pork belly', 'en', 1, 8));
   });
 
   it('caches normalized results for equivalent queries without spending request budget again', async () => {
-    const fetcher = vi.fn(async () => new Response(JSON.stringify({ products: [{
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ hits: [{
       code: 'cached', lang: 'en', product_name_en: 'Pork', brands: 'Foods',
     }] }), { status: 200 }));
     const provider = new OpenFoodFactsProvider('FoodscopeTest/1.0', fetcher);
 
     const first = await provider.search('Pork', 'en');
-    first[0]!.name = 'mutated by caller';
+    first.products[0]!.name = 'mutated by caller';
     const second = await provider.search('  ＰＯＲＫ\t ', 'en');
 
-    expect(second).toEqual([{
-      id: 'cached', name: 'Pork', brand: 'Foods', image: null,
-    }]);
+    expect(second).toEqual({
+      products: [{ id: 'cached', name: 'Pork', brand: 'Foods', image: null }],
+      hasMore: false,
+    });
     expect(fetcher).toHaveBeenCalledOnce();
 
     for (let index = 0; index < 9; index += 1) {
@@ -191,48 +196,71 @@ describe('Open Food Facts normalization', () => {
     });
   });
 
+  it('isolates cached and in-flight results by page and page size', async () => {
+    const fetcher = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { page: number; page_size: number };
+      return new Response(JSON.stringify({
+        page: body.page,
+        page_count: 3,
+        hits: [{
+          code: `${body.page}-${body.page_size}`,
+          lang: 'en',
+          product_name: 'Paged product',
+        }],
+      }), { status: 200 });
+    });
+    const provider = new OpenFoodFactsProvider('FoodscopeTest/1.0', fetcher);
+
+    await provider.search('milk', 'en', undefined, 1, 4);
+    await provider.search('MILK', 'en', undefined, 2, 4);
+    await provider.search(' milk ', 'en', undefined, 1, 4);
+    await provider.search('milk', 'en', undefined, 1, 8);
+
+    expect(fetcher).toHaveBeenCalledTimes(3);
+  });
+
   it('isolates cache entries by locale', async () => {
     const fetcher = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       const locale = new Headers(init?.headers).get('Accept-Language');
-      return new Response(JSON.stringify({ products: [{
+      return new Response(JSON.stringify({ hits: [{
         code: locale, lang: locale, product_name: `Product ${locale}`,
       }] }), { status: 200 });
     });
     const provider = new OpenFoodFactsProvider('FoodscopeTest/1.0', fetcher);
 
-    await expect(provider.search('Pork', 'en')).resolves.toMatchObject([{ id: 'en' }]);
-    await expect(provider.search(' pork ', 'fr')).resolves.toMatchObject([{ id: 'fr' }]);
-    await expect(provider.search('PORK', 'en')).resolves.toMatchObject([{ id: 'en' }]);
+    await expect(provider.search('Pork', 'en')).resolves.toMatchObject({ products: [{ id: 'en' }] });
+    await expect(provider.search(' pork ', 'fr')).resolves.toMatchObject({ products: [{ id: 'fr' }] });
+    await expect(provider.search('PORK', 'en')).resolves.toMatchObject({ products: [{ id: 'en' }] });
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
   it('expires entries at the configured TTL and replaces them only after a fresh success', async () => {
     let now = 1_000_000;
     const fetcher = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ products: [{
+      .mockResolvedValueOnce(new Response(JSON.stringify({ hits: [{
         code: 'first', lang: 'en', product_name: 'First',
       }] }), { status: 200 }))
       .mockResolvedValueOnce(new Response('failure', { status: 500 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ products: [{
+      .mockResolvedValueOnce(new Response(JSON.stringify({ hits: [{
         code: 'replacement', lang: 'en', product_name: 'Replacement',
       }] }), { status: 200 }));
     const provider = new OpenFoodFactsProvider(
       'FoodscopeTest/1.0', fetcher, () => now, { clock: () => now, ttlMs: 100 },
     );
 
-    await expect(provider.search('milk', 'en')).resolves.toMatchObject([{ id: 'first' }]);
+    await expect(provider.search('milk', 'en')).resolves.toMatchObject({ products: [{ id: 'first' }] });
     now += 99;
-    await expect(provider.search('milk', 'en')).resolves.toMatchObject([{ id: 'first' }]);
+    await expect(provider.search('milk', 'en')).resolves.toMatchObject({ products: [{ id: 'first' }] });
     now += 1;
     await expect(provider.search('milk', 'en')).rejects.toThrow('Open Food Facts returned 500');
-    await expect(provider.search('milk', 'en')).resolves.toMatchObject([{ id: 'replacement' }]);
+    await expect(provider.search('milk', 'en')).resolves.toMatchObject({ products: [{ id: 'replacement' }] });
     expect(fetcher).toHaveBeenCalledTimes(3);
   });
 
   it('keeps the default cache within 500 entries and evicts the least recently used key', async () => {
     let now = 1_000_000;
     const fetcher = vi.fn(async () => new Response(JSON.stringify({
-      products: [{ code: String(fetcher.mock.calls.length), lang: 'en' }],
+      hits: [{ code: String(fetcher.mock.calls.length), lang: 'en' }],
     }), { status: 200 }));
     const provider = new OpenFoodFactsProvider(
       'FoodscopeTest/1.0', fetcher, () => now, {
@@ -254,16 +282,16 @@ describe('Open Food Facts normalization', () => {
   });
 
   it('caches successful empty results', async () => {
-    const fetcher = vi.fn(async () => new Response(JSON.stringify({ products: [] }), { status: 200 }));
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ hits: [] }), { status: 200 }));
     const provider = new OpenFoodFactsProvider('FoodscopeTest/1.0', fetcher);
 
-    await expect(provider.search('missing', 'en')).resolves.toEqual([]);
-    await expect(provider.search(' MISSING ', 'en')).resolves.toEqual([]);
+    await expect(provider.search('missing', 'en')).resolves.toEqual({ products: [], hasMore: false });
+    await expect(provider.search(' MISSING ', 'en')).resolves.toEqual({ products: [], hasMore: false });
     expect(fetcher).toHaveBeenCalledOnce();
   });
 
   it('keeps cached results local to one provider process instance', async () => {
-    const fetcher = vi.fn(async () => new Response(JSON.stringify({ products: [] }), { status: 200 }));
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ hits: [] }), { status: 200 }));
     const firstProcess = new OpenFoodFactsProvider('FoodscopeTest/1.0', fetcher);
     const restartedProcess = new OpenFoodFactsProvider('FoodscopeTest/1.0', fetcher);
 
@@ -284,18 +312,18 @@ describe('Open Food Facts normalization', () => {
   ])('does not cache a %s', async (_label, failingResponse) => {
     const fetcher = vi.fn()
       .mockImplementationOnce(async () => failingResponse())
-      .mockResolvedValueOnce(new Response(JSON.stringify({ products: [] }), { status: 200 }));
+      .mockResolvedValueOnce(new Response(JSON.stringify({ hits: [] }), { status: 200 }));
     const provider = new OpenFoodFactsProvider('FoodscopeTest/1.0', fetcher);
 
     await expect(provider.search('retryable', 'en')).rejects.toBeDefined();
-    await expect(provider.search('retryable', 'en')).resolves.toEqual([]);
+    await expect(provider.search('retryable', 'en')).resolves.toEqual({ products: [], hasMore: false });
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
   it('coalesces identical misses while keeping different keys independent', async () => {
     const releases = new Map<string, (response: Response) => void>();
-    const fetcher = vi.fn((input: string | URL | Request) => {
-      const query = new URL(String(input)).searchParams.get('search_terms')!;
+    const fetcher = vi.fn((_input: string | URL | Request, init?: RequestInit) => {
+      const query = (JSON.parse(String(init?.body)) as { q: string }).q;
       return new Promise<Response>((resolve) => releases.set(query, resolve));
     });
     const provider = new OpenFoodFactsProvider('FoodscopeTest/1.0', fetcher);
@@ -305,14 +333,14 @@ describe('Open Food Facts normalization', () => {
     const independent = provider.search('bread', 'en');
     expect(fetcher).toHaveBeenCalledTimes(2);
 
-    releases.get('bread')!(new Response(JSON.stringify({ products: [] }), { status: 200 }));
-    await expect(independent).resolves.toEqual([]);
-    releases.get('Milk')!(new Response(JSON.stringify({ products: [{
+    releases.get('"bread"')!(new Response(JSON.stringify({ hits: [] }), { status: 200 }));
+    await expect(independent).resolves.toEqual({ products: [], hasMore: false });
+    releases.get('"Milk"')!(new Response(JSON.stringify({ hits: [{
       code: 'shared', lang: 'en', product_name: 'Shared',
     }] }), { status: 200 }));
     await expect(Promise.all([first, joined])).resolves.toEqual([
-      [{ id: 'shared', name: 'Shared', brand: null, image: null }],
-      [{ id: 'shared', name: 'Shared', brand: null, image: null }],
+      { products: [{ id: 'shared', name: 'Shared', brand: null, image: null }], hasMore: false },
+      { products: [{ id: 'shared', name: 'Shared', brand: null, image: null }], hasMore: false },
     ]);
   });
 
@@ -332,23 +360,23 @@ describe('Open Food Facts normalization', () => {
 
     await expect(aborted).rejects.toBeDefined();
     expect(upstreamSignal?.aborted).toBe(false);
-    release!(new Response(JSON.stringify({ products: [] }), { status: 200 }));
-    await expect(survivor).resolves.toEqual([]);
-    await expect(provider.search('milk', 'en')).resolves.toEqual([]);
+    release!(new Response(JSON.stringify({ hits: [] }), { status: 200 }));
+    await expect(survivor).resolves.toEqual({ products: [], hasMore: false });
+    await expect(provider.search('milk', 'en')).resolves.toEqual({ products: [], hasMore: false });
     expect(fetcher).toHaveBeenCalledOnce();
   });
 
   it('clears timed-out in-flight work so a later caller can retry', async () => {
     const fetcher = vi.fn()
       .mockRejectedValueOnce(new DOMException('timed out', 'TimeoutError'))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ products: [] }), { status: 200 }));
+      .mockResolvedValueOnce(new Response(JSON.stringify({ hits: [] }), { status: 200 }));
     const provider = new OpenFoodFactsProvider('FoodscopeTest/1.0', fetcher);
 
     await expect(Promise.all([
       provider.search('milk', 'en'),
       provider.search('MILK', 'en'),
     ])).rejects.toThrow('timed out');
-    await expect(provider.search('milk', 'en')).resolves.toEqual([]);
+    await expect(provider.search('milk', 'en')).resolves.toEqual({ products: [], hasMore: false });
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
@@ -364,15 +392,15 @@ describe('Open Food Facts normalization', () => {
 
     const retry = provider.search('milk', 'en');
     expect(fetcher).toHaveBeenCalledTimes(2);
-    releases[0]!(new Response(JSON.stringify({ products: [{
+    releases[0]!(new Response(JSON.stringify({ hits: [{
       code: 'abandoned', lang: 'en', product_name: 'Abandoned',
     }] }), { status: 200 }));
-    releases[1]!(new Response(JSON.stringify({ products: [{
+    releases[1]!(new Response(JSON.stringify({ hits: [{
       code: 'fresh', lang: 'en', product_name: 'Fresh',
     }] }), { status: 200 }));
 
-    await expect(retry).resolves.toMatchObject([{ id: 'fresh' }]);
-    await expect(provider.search('milk', 'en')).resolves.toMatchObject([{ id: 'fresh' }]);
+    await expect(retry).resolves.toMatchObject({ products: [{ id: 'fresh' }] });
+    await expect(provider.search('milk', 'en')).resolves.toMatchObject({ products: [{ id: 'fresh' }] });
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
@@ -385,18 +413,22 @@ describe('Open Food Facts normalization', () => {
         headers: new Headers(),
         body: { cancel },
       } as unknown as Response)
-      .mockResolvedValueOnce(new Response(JSON.stringify({ products: [{ code: '123', lang: 'fr', product_name_fr: 'Avoine' }] }), {
+      .mockResolvedValueOnce(new Response(JSON.stringify({ hits: [{ code: '123', lang: 'fr', product_name_fr: 'Avoine' }] }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
       }));
     const provider = new OpenFoodFactsProvider('FoodscopeTest/1.0', fetcher);
 
-    await expect(provider.search('avoine', 'fr')).resolves.toMatchObject([{ id: '123', name: 'Avoine' }]);
+    await expect(provider.search('avoine', 'fr')).resolves.toMatchObject({
+      products: [{ id: '123', name: 'Avoine' }],
+      hasMore: false,
+    });
     expect(fetcher).toHaveBeenCalledTimes(2);
     expect(cancel).toHaveBeenCalledOnce();
-    const requestUrl = new URL(String(fetcher.mock.calls[0]?.[0]));
-    expect(requestUrl.toString()).toContain('/cgi/search.pl?search_terms=avoine&search_simple=1');
-    expect(requestUrl.searchParams.get('fields')?.split(',')).toEqual([
+    expect(fetcher.mock.calls[0]?.[0]).toBe('https://search.openfoodfacts.org/search');
+    const requestBody = JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body)) as Record<string, unknown>;
+    expect(requestBody).toMatchObject({ q: '"avoine"', page: 1, page_size: 4, langs: ['fr'] });
+    expect(requestBody.fields).toEqual([
       'code',
       'lang',
       'product_name',
@@ -408,6 +440,44 @@ describe('Open Food Facts normalization', () => {
       'nutriments',
     ]);
     expect(fetcher.mock.calls[0]?.[1]?.headers).toMatchObject({ 'Accept-Language': 'fr' });
+  });
+
+  it('quotes accepted product text before sending it to the provider query parser', async () => {
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      void input;
+      void init;
+      return new Response(JSON.stringify({ hits: [] }), { status: 200 });
+    });
+    const provider = new OpenFoodFactsProvider('FoodscopeTest/1.0', fetcher);
+
+    await provider.search('Coca-Cola: (Zero) AND "light" milk* C++', 'en');
+
+    const requestBody = JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body)) as { q: string };
+    expect(requestBody.q).toBe(
+      '"Coca-Cola:" "(Zero)" "AND" "\\"light\\"" "milk*" "C++"',
+    );
+  });
+
+  it('preserves the declared nutrition basis through the full provider path', async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({
+      hits: [
+        { code: 'mass', lang: 'en', nutrition_data_per: '100g', nutriments: { 'fat_100g': 2 } },
+        { code: 'volume', lang: 'en', nutrition_data_per: '100ml', nutriments: { 'fat_100g': 3 } },
+        { code: 'serving', lang: 'en', nutrition_data_per: 'serving', nutriments: { 'fat_100g': 4 } },
+        { code: 'missing', lang: 'en', nutriments: { 'fat_100g': 5 } },
+      ],
+    }), { status: 200 }));
+    const provider = new OpenFoodFactsProvider('FoodscopeTest/1.0', fetcher);
+
+    const result = await provider.search('nutrition', 'en');
+
+    expect(result.products.find((product) => product.id === 'mass')).toHaveProperty(
+      'nutrition.fat',
+      { value: 2, unit: 'g' },
+    );
+    for (const id of ['volume', 'serving', 'missing']) {
+      expect(result.products.find((product) => product.id === id)).not.toHaveProperty('nutrition');
+    }
   });
 
   it('does not amplify rate limits and exposes Retry-After', async () => {
@@ -452,34 +522,59 @@ describe('Open Food Facts normalization', () => {
   });
 
   it('removes duplicate product IDs from malformed upstream results', async () => {
-    const fetcher = vi.fn(async () => new Response(JSON.stringify({ products: [
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ hits: [
       { code: 'duplicate', lang: 'en', product_name: 'First' },
       { code: 'duplicate', lang: 'en', product_name: 'Second' },
     ] }), { status: 200 }));
     const provider = new OpenFoodFactsProvider('FoodscopeTest/1.0', fetcher);
 
-    await expect(provider.search('milk', 'en')).resolves.toEqual([{
-      id: 'duplicate', name: 'First', brand: null, image: null,
-    }]);
+    await expect(provider.search('milk', 'en')).resolves.toEqual({
+      products: [{ id: 'duplicate', name: 'First', brand: null, image: null }],
+      hasMore: false,
+    });
   });
 
-  it('never returns more products than the requested page size', async () => {
+  it('keeps pagination open when only part of an upstream page survives normalization', async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({
+      page: 1,
+      page_count: 3,
+      hits: [
+        { code: 'en-1', lang: 'en', product_name: 'English one' },
+        { code: 'fr-1', lang: 'fr', product_name: 'French one' },
+        { code: 'en-2', lang: 'en', product_name: 'English two' },
+        { code: 'fr-2', lang: 'fr', product_name: 'French two' },
+      ],
+    }), { status: 200 }));
+    const provider = new OpenFoodFactsProvider('FoodscopeTest/1.0', fetcher);
+
+    await expect(provider.search('mixed', 'en')).resolves.toMatchObject({
+      products: [{ id: 'en-1' }, { id: 'en-2' }],
+      hasMore: true,
+    });
+  });
+
+  it('requests and returns one four-product page at a time', async () => {
     const upstreamProducts = Array.from({ length: 25 }, (_value, index) => ({
       code: `product-${index + 1}`,
       lang: 'en',
       product_name: `Product ${index + 1}`,
     }));
-    const fetcher = vi.fn(async (input: string | URL | Request) => {
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       void input;
-      return new Response(JSON.stringify({ products: upstreamProducts }), { status: 200 });
+      void init;
+      return new Response(JSON.stringify({ hits: upstreamProducts }), { status: 200 });
     });
     const provider = new OpenFoodFactsProvider('FoodscopeTest/1.0', fetcher);
 
-    const products = await provider.search('many', 'en');
+    const result = await provider.search('many', 'en', undefined, 3, 4);
 
-    expect(products).toHaveLength(20);
-    expect(products.at(-1)?.id).toBe('product-20');
-    expect(new URL(String(fetcher.mock.calls[0]?.[0])).searchParams.get('page_size')).toBe('20');
+    expect(result.products).toHaveLength(4);
+    expect(result.products.at(-1)?.id).toBe('product-4');
+    expect(result.hasMore).toBe(true);
+    expect(JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body))).toMatchObject({
+      page: 3,
+      page_size: 4,
+    });
   });
 
   it('cancels an oversized upstream response instead of buffering it without a limit', async () => {
@@ -518,7 +613,7 @@ describe('Open Food Facts normalization', () => {
   });
 
   it('rejects invalid UTF-8 instead of exposing replacement characters', async () => {
-    const prefix = Buffer.from('{"products":[{"code":"1","product_name":"');
+    const prefix = Buffer.from('{"hits":[{"code":"1","product_name":"');
     const suffix = Buffer.from('"}]}');
     const malformed = new Uint8Array(prefix.length + 2 + suffix.length);
     malformed.set(prefix);
@@ -548,7 +643,7 @@ describe('Open Food Facts normalization', () => {
           init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
         });
       })
-      .mockResolvedValueOnce(new Response(JSON.stringify({ products: [] }), { status: 200 }));
+      .mockResolvedValueOnce(new Response(JSON.stringify({ hits: [] }), { status: 200 }));
     const provider = new OpenFoodFactsProvider('FoodscopeTest/1.0', fetcher);
     const controller = new AbortController();
 
@@ -557,14 +652,14 @@ describe('Open Food Facts normalization', () => {
 
     await expect(pending).rejects.toBeDefined();
     expect(fetcher.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
-    await expect(provider.search('milk', 'en')).resolves.toEqual([]);
+    await expect(provider.search('milk', 'en')).resolves.toEqual({ products: [], hasMore: false });
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
   it('does not spend the upstream request budget when the caller already aborted', async () => {
     const fetcher = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       init?.signal?.throwIfAborted();
-      return new Response(JSON.stringify({ products: [] }), { status: 200 });
+      return new Response(JSON.stringify({ hits: [] }), { status: 200 });
     });
     const provider = new OpenFoodFactsProvider('FoodscopeTest/1.0', fetcher);
 
@@ -574,13 +669,13 @@ describe('Open Food Facts normalization', () => {
       await expect(provider.search('abandoned', 'en', controller.signal)).rejects.toBeDefined();
     }
 
-    await expect(provider.search('valid', 'en')).resolves.toEqual([]);
+    await expect(provider.search('valid', 'en')).resolves.toEqual({ products: [], hasMore: false });
     expect(fetcher).toHaveBeenCalledOnce();
   });
 
   it('blocks an eleventh upstream search request within one minute', async () => {
     let now = 1_000_000;
-    const fetcher = vi.fn(async () => new Response(JSON.stringify({ products: [] }), { status: 200 }));
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ hits: [] }), { status: 200 }));
     const provider = new OpenFoodFactsProvider('FoodscopeTest/1.0', fetcher, () => now);
 
     for (let requestNumber = 0; requestNumber < 10; requestNumber += 1) {
@@ -590,7 +685,7 @@ describe('Open Food Facts normalization', () => {
     expect(fetcher).toHaveBeenCalledTimes(10);
 
     now += 60_000;
-    await expect(provider.search('available', 'en')).resolves.toEqual([]);
+    await expect(provider.search('available', 'en')).resolves.toEqual({ products: [], hasMore: false });
     expect(fetcher).toHaveBeenCalledTimes(11);
   });
 });

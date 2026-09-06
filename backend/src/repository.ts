@@ -1,6 +1,6 @@
 import type Stripe from 'stripe';
 import { Prisma } from '@prisma/client';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   canStartCheckout,
   CHECKOUT_ELIGIBLE_STATUSES,
@@ -8,7 +8,7 @@ import {
   isActiveSubscription,
   normalizeStripeSubscriptionStatus,
 } from './constants.js';
-import { CheckoutUnavailableError } from './errors.js';
+import { CheckoutUnavailableError, SubscriptionUnavailableError } from './errors.js';
 import { prisma } from './prisma.js';
 import { isMonthlyTestPrice } from './stripe-price.js';
 import { isStripeOpaqueId } from './stripe-config.js';
@@ -41,6 +41,23 @@ function subscriptionPeriodEnd(subscription: Stripe.Subscription, stripePriceId:
   return Number.isFinite(end.getTime()) && end.getUTCFullYear() <= 9_999 ? end : null;
 }
 
+function subscriptionSnapshot(subscription: Stripe.Subscription, stripePriceId: string | undefined) {
+  const normalizedStatus = normalizeStripeSubscriptionStatus(subscription.status);
+  const periodEnd = subscriptionPeriodEnd(subscription, stripePriceId);
+  const subscriptionStatus = isActiveSubscription(normalizedStatus) && !periodEnd
+    ? 'unknown'
+    : normalizedStatus;
+  return {
+    subscriptionStatus,
+    subscriptionCurrentPeriodEnd: periodEnd,
+    subscriptionCancelAtPeriodEnd: Boolean(
+      isActiveSubscription(subscriptionStatus) &&
+      periodEnd &&
+      subscription.cancel_at_period_end === true
+    ),
+  };
+}
+
 const CHECKOUT_ATTEMPT_MS = 60 * 60 * 1000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -49,6 +66,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isUniqueConstraintError(error: unknown) {
   return isRecord(error) && error.code === 'P2002';
+}
+
+function normalizedSearchKey(query: string, locale: Locale) {
+  const normalized = query.normalize('NFKC').trim().replace(/\s+/gu, ' ').toLocaleLowerCase(locale);
+  return createHash('sha256').update(normalized, 'utf8').digest('hex');
 }
 
 function expandableId(value: unknown, objectType: string) {
@@ -134,7 +156,13 @@ export function createRepository(database: typeof prisma, stripePriceId?: string
   return {
     getDemoUser: () => database.user.findUnique({
       where: { id: DEMO_USER_ID },
-      select: { id: true, subscriptionStatus: true, subscriptionCurrentPeriodEnd: true },
+      select: {
+        id: true,
+        stripeSubscriptionId: true,
+        subscriptionStatus: true,
+        subscriptionCurrentPeriodEnd: true,
+        subscriptionCancelAtPeriodEnd: true,
+      },
     }),
     getDemoUserForCheckout: () => database.user.findUnique({
       where: { id: DEMO_USER_ID },
@@ -149,11 +177,19 @@ export function createRepository(database: typeof prisma, stripePriceId?: string
         stripeCheckoutExpiresAt: true,
         subscriptionStatus: true,
         subscriptionCurrentPeriodEnd: true,
+        subscriptionCancelAtPeriodEnd: true,
       },
     }),
     async saveSearch(userId: string, requestId: string, query: string, locale: Locale) {
+      const queryKey = normalizedSearchKey(query, locale);
       try {
-        await database.recentSearch.create({ data: { userId, requestId, query, locale } });
+        await database.recentSearch.upsert({
+          where: { userId_locale_queryKey: { userId, locale, queryKey } },
+          create: { userId, requestId, queryKey, query, locale },
+          // Keep the first operation ID attached to this normalized search. Replacing it here
+          // would make an already-consumed idempotency key available for a different query.
+          update: { query, createdAt: new Date() },
+        });
       } catch (error) {
         if (!isUniqueConstraintError(error)) throw error;
         const existing = await database.recentSearch.findUnique({
@@ -394,8 +430,16 @@ export function createRepository(database: typeof prisma, stripePriceId?: string
               await tx.user.updateMany({
                 where: { id: DEMO_USER_ID, stripeCustomerId: customerId },
                 data: {
+                  stripeCustomerId: null,
+                  stripeSubscriptionId: null,
+                  stripeCheckoutAttemptId: null,
+                  stripeCheckoutPriceId: null,
+                  stripeCheckoutSessionId: null,
+                  stripeCheckoutSessionUrl: null,
+                  stripeCheckoutExpiresAt: null,
                   subscriptionStatus: 'canceled',
                   subscriptionCurrentPeriodEnd: null,
+                  subscriptionCancelAtPeriodEnd: false,
                 },
               });
             }
@@ -432,15 +476,9 @@ export function createRepository(database: typeof prisma, stripePriceId?: string
               user.stripeSubscriptionId === currentSubscription.id ||
               isCheckoutHandoff
             )) {
-              const normalizedStatus = normalizeStripeSubscriptionStatus(
-                currentSubscription.status,
-              );
-              const periodEnd = subscriptionPeriodEnd(currentSubscription, stripePriceId);
-              const subscriptionStatus = isActiveSubscription(normalizedStatus) && !periodEnd
-                ? 'unknown'
-                : normalizedStatus;
+              const snapshot = subscriptionSnapshot(currentSubscription, stripePriceId);
               const shouldClearCheckoutAttempt = isCheckoutHandoff ||
-                !canStartCheckout(subscriptionStatus);
+                !canStartCheckout(snapshot.subscriptionStatus);
               const customerId = typeof currentSubscription.customer === 'string'
                 ? currentSubscription.customer
                 : currentSubscription.customer.id;
@@ -449,8 +487,7 @@ export function createRepository(database: typeof prisma, stripePriceId?: string
                 data: {
                   stripeCustomerId: customerId,
                   stripeSubscriptionId: currentSubscription.id,
-                  subscriptionStatus,
-                  subscriptionCurrentPeriodEnd: periodEnd,
+                  ...snapshot,
                   ...(shouldClearCheckoutAttempt ? {
                     stripeCheckoutAttemptId: null,
                     stripeCheckoutPriceId: null,
@@ -463,6 +500,22 @@ export function createRepository(database: typeof prisma, stripePriceId?: string
             }
           }
         }, { maxWait: 5_000, timeout: 15_000 });
+    },
+    async syncSubscription(userId, subscription) {
+      if (!isSubscriptionReference(subscription)) {
+        throw new SubscriptionUnavailableError();
+      }
+      const customerId = activeCustomerId(subscription.customer);
+      if (!customerId) throw new SubscriptionUnavailableError();
+      const updated = await database.user.updateMany({
+        where: {
+          id: userId,
+          stripeCustomerId: customerId,
+          stripeSubscriptionId: subscription.id,
+        },
+        data: subscriptionSnapshot(subscription, stripePriceId),
+      });
+      if (updated.count !== 1) throw new SubscriptionUnavailableError();
     },
   };
 }
